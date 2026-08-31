@@ -1,0 +1,37 @@
+# repo-truth's factory configuration.
+#
+# This repository is a CONSUMER: it holds configuration, and the controller
+# lives elsewhere at a pinned version. Every key omitted here takes the
+# documented default in the controller's configuration module; what is written
+# down is what is an assertion about THIS repository rather than a copy of a
+# default.
+#
+# The repository id is the directory name, `repo-truth`, and is not spelled
+# here: the factory directory resolver walks up from the working directory to
+# find this file, and the id follows from where it found it.
+
+version = 1
+
+# The core stays English; the operator reads Russian, and report language is a
+# consumer parameter.
+reports_language = "ru"
+
+[repo]
+# `root` is deliberately absent: it defaults to the parent of this factory/
+# directory, so a clone anywhere keeps working without an edit.
+remote = "origin"
+base_branch = "main"
+
+[merge]
+# `auto` is what this repository WANTS once it is trusted. It is not what will
+# happen next: shadow mode is on by default and nothing is merged while it is,
+# so this line describes the destination and the operator's switch decides when
+# the factory arrives at it.
+mode = "auto"
+
+[deploy]
+# Pinned, not defaulted: an off switch that only exists in code is one refactor
+# away from being on. Deploying is an operator action (discipline 6), and this
+# repository has nothing to deploy anyway - it publishes a package, which is a
+# release and not a deploy.
+enabled = false

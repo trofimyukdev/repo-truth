@@ -1,0 +1,66 @@
+# The worker deny list, layer two of the fence.
+#
+# Read by the controller, turned into a settings document for the worker, and
+# merged with the OS sandbox into the one settings argument the worker is
+# started with. This file is this repository's own copy of what every consumer
+# owns: what counts as a destructive command HERE.
+#
+# These rules are the CLI's own permission syntax and the CLI is what matches
+# them, which is a prefix matcher and therefore defence in depth and never the
+# fence itself. Every refusal that matters is also a decision of the PreToolUse
+# hook, where the rules are capability invariants rather than names. A group is
+# emitted only while its security flag is on, so turning a flag off in
+# millwright.toml removes the group from the settings document AND the matching
+# hook rule.
+#
+# Every group must be declared. An omitted group is refused rather than
+# defaulted, because "no rules here" and "I forgot this group" are otherwise the
+# same file.
+version: 1
+
+deny:
+  # An ordinary task may never change factory/**: that is the queue, the ladder
+  # and this file, and a task that can edit its own acceptance criteria has
+  # none. The hook prevents the write; these rules make the CLI refuse the
+  # obvious spellings first. tsconfig and package.json are here for the same
+  # reason one rung above: a task that can switch off `strict` or replace the
+  # test command passes its ladder by changing what the ladder means.
+  protect_factory_files:
+    - "Write(./factory/**)"
+    - "Edit(./factory/**)"
+    - "Write(./.github/**)"
+    - "Edit(./.github/**)"
+    - "Write(./tsconfig.json)"
+    - "Edit(./tsconfig.json)"
+    - "Write(./tsconfig.build.json)"
+    - "Edit(./tsconfig.build.json)"
+    - "Read(./factory/state/**)"
+
+  # Workers never push, merge or publish. `git push --force` is the spelling
+  # worth naming twice; the bare verb is here because a deny list that only
+  # names the forced one permits the other. `npm publish` is this repository's
+  # own addition: it is a package, so releasing it is the irreversible act that
+  # deploying is elsewhere, and it is an operator action (discipline 6).
+  deny_worker_push:
+    - "Bash(git push:*)"
+    - "Bash(git push --force:*)"
+    - "Bash(git remote:*)"
+    - "Bash(npm publish:*)"
+
+  # "Blind pattern-based process killing is forbidden to everyone, always."
+  deny_process_pattern_kill:
+    - "Bash(pkill:*)"
+    - "Bash(killall:*)"
+    - "Bash(kill:*)"
+
+  # No destructive docker from a worker. This repository runs no containers
+  # today; the group is declared rather than omitted because an omitted group is
+  # refused, and because "we have no docker" is a fact about this week.
+  deny_destructive_docker:
+    - "Bash(docker rm:*)"
+    - "Bash(docker rmi:*)"
+    - "Bash(docker kill:*)"
+    - "Bash(docker system prune:*)"
+    - "Bash(docker volume rm:*)"
+    - "Bash(docker compose down:*)"
+    - "Bash(docker-compose down:*)"

@@ -1,0 +1,10 @@
+{
+  "millwright": {
+    "tested": "0.0.0",
+    "minimum": "0.0.0"
+  },
+  "claude_cli": {
+    "tested": "2.1.233",
+    "minimum": "2.1.233"
+  }
+}

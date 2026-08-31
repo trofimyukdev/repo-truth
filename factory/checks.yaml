@@ -1,0 +1,38 @@
+# repo-truth's deterministic check ladder - stage 2 of the verification DAG.
+#
+# The ORDER is not in this file: it is the controller's `RUNG_ORDER`, and a rung
+# declared here takes its position from there. What this file owns is WHICH
+# COMMANDS this repository runs at each rung, which is the half a consumer owns.
+#
+# The `focused` rung has no entry and cannot have one: a task's focused tests are
+# its own `measure` list plus the required commands of its `acceptance`, derived
+# from the TaskSpec so that the gate re-runs exactly what the task is measured by.
+#
+# Three rungs are omitted rather than declared empty, which is how this file says
+# "nothing here":
+#   format         - no formatter; style here is reviewed, not machine-enforced.
+#   lint           - no linter in package.json. `npm run typecheck` and the
+#                    compiler's strictness carry that load today.
+#   full_suite     - `npx vitest run` below already runs every test there is.
+#                    The rung arrives when a suite exists that the unit rung does
+#                    not cover.
+#
+# `project_truth` is the interesting omission and the one to watch: this package
+# EXISTS to become that rung. Once `repo-truth check` is a command (task RT-07),
+# this repository runs its own checks on itself and the entry belongs here. It is
+# absent today because the command does not exist, and a rung naming a command
+# that is not built is a ladder that fails for the wrong reason.
+version: 1
+
+ladder:
+  typecheck:
+    - name: tsc
+      command: npm run typecheck
+
+  unit:
+    - name: vitest
+      command: npx vitest run
+
+  build:
+    - name: build
+      command: npm run build
