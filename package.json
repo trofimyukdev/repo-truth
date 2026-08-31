@@ -1,0 +1,23 @@
+{
+  "name": "repo-truth",
+  "version": "0.0.0",
+  "description": "Repository truth: portable gates over a commit range - hygiene, the measurement rule, weakened tests, stray files, lockfile drift.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+factory/state/
+factory/runs/
+factory/generated/
+*.log
