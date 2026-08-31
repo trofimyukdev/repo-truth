@@ -1,0 +1,72 @@
+id: RT-05
+repo: repo-truth
+priority: 80
+milestone: M0
+title: Stray files - what the range added that nobody meant to keep
+
+outcome: >
+  A range that adds a scratch script, a debug log, an editor backup, a coverage
+  directory, a build artefact or a copied-aside file (`config.ts.bak`,
+  `index 2.ts`) has added it because an agent was working, not because anyone
+  decided to keep it. The check reads the names the range ADDS and reports the
+  ones that match a stated stray shape, and separately reports an added file that
+  the repository's own ignore rules would have excluded - because that pair
+  disagreeing is itself the finding: either the file should not be there or the
+  ignore rules are wrong.
+
+measure:
+  - npx vitest run test/unit/stray-files.test.ts
+
+not_done_if:
+  - "a name is reported without saying WHY it matched, so the author cannot tell a real stray from a false positive and treats every finding the same way"
+  - "the check reads the working tree rather than the range's added paths, so a file a developer has locally is a finding against a candidate that does not contain it"
+  - "modified and renamed paths are treated like added ones, so an ordinary rename of a legitimately-named file becomes a finding"
+  - "an added file that the repository's ignore rules already cover is silently accepted, which is the exact case where the tree and the rules have parted company"
+  - "the stray shapes are inline in the matcher rather than a stated, extensible list, so a consumer with its own conventions cannot adopt the check without a fork"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/stray-files.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The check reads only the paths `base..candidate` ADDS, and each finding
+      names the path and the rule that matched it. A rename or a modification of
+      a file with the same name produces nothing.
+  - type: behavior
+    statement: >
+      An added path that the repository's own ignore rules would exclude is
+      reported as its own category, distinct in the evidence from a name-shape
+      match, because the fix differs: one deletes a file, the other corrects the
+      rules.
+  - type: behavior
+    statement: >
+      The stray shapes are one exported, documented list, and a test reads that
+      list rather than restating its entries, so adding a shape cannot leave the
+      test asserting the old set.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 2.50
+  verify_usd: 1.50
+  wall_minutes: 45
+
+merge: { mode: auto }

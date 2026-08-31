@@ -1,0 +1,71 @@
+id: RT-06
+repo: repo-truth
+priority: 78
+milestone: M0
+title: Lockfile drift - the manifest and the lockfile stopped agreeing
+
+outcome: >
+  A range that edits a dependency in the manifest without the lockfile, or the
+  lockfile without the manifest, has changed what the next install resolves to
+  without saying so. Either direction is a finding and they are different
+  findings: a manifest edited alone means the pin the lockfile carries is now a
+  lie about what was asked for, while a lockfile edited alone means a version
+  moved with no request behind it - which is the shape a dependency-confusion
+  substitution takes when it arrives through an agent's diff. The check answers
+  which of the two happened, for whichever lockfiles the repository actually has.
+
+measure:
+  - npx vitest run test/unit/lockfile-drift.test.ts
+
+not_done_if:
+  - "the two directions are collapsed into one finding, so the report cannot distinguish a stale pin from an unrequested version bump"
+  - "a manifest change that touches no dependency field - a description, a script, a version bump - is reported as drift, which makes the check noisy enough to be switched off"
+  - "one package manager's lockfile name is hard-coded, so a repository on another manager gets a silent pass rather than a stated skip"
+  - "a repository with a manifest and no lockfile at all is reported as a pass rather than as a skip naming what was not found"
+  - "the lockfile is parsed as a whole to compare resolved trees, turning a cheap deterministic check into a slow one that needs a resolver"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/lockfile-drift.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      Given a range that changes a dependency field of the manifest and not the
+      lockfile, the check fails naming that direction; given the reverse, it fails
+      naming the other; given both changed together, it passes. Three tests, one
+      per case.
+  - type: behavior
+    statement: >
+      A manifest change confined to non-dependency fields produces nothing, pinned
+      by a test that edits a script and a description in the same range.
+  - type: behavior
+    statement: >
+      A repository whose lockfile the check does not recognise, or which has none,
+      yields a `skip` record naming what it looked for - never a `pass`, because a
+      gate that reads a silent pass as coverage is a gate that stops covering this.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 2.50
+  verify_usd: 1.50
+  wall_minutes: 45
+
+merge: { mode: auto }

@@ -1,0 +1,75 @@
+id: RT-01
+repo: repo-truth
+priority: 88
+milestone: M0
+title: Commit-range ASCII and identity hygiene over base..candidate
+
+outcome: >
+  Every commit a range carries has passed the allowed-character and identity
+  rules, not only the commits a local hook happened to see. `cherry-pick`,
+  `revert`, every form of `rebase` and `git am` never invoke `commit-msg` - a
+  property of git, not a defect of the hook - so a repository that enforces the
+  rule only at commit time enforces it on a subset it cannot name. This check
+  reads the range `base..candidate` and answers for all of it, as a `CheckRecord`
+  a gate consumes without parsing prose.
+
+measure:
+  - npx vitest run test/unit/commit-range.test.ts
+
+not_done_if:
+  - "the check inspects only the tip commit, or only commits whose parent is the base, instead of every commit in the range"
+  - "author and committer name and e-mail are left unchecked, so a non-ASCII identity reaches the base branch through the same paths a message does"
+  - "a range that cannot be computed, an unknown revision or a failing git invocation is reported as a pass; the check must fail closed"
+  - "the range is taken from a local branch ref rather than from the fetched remote base, so a stale local base silently shrinks what is checked"
+  - "the check shells out through an interpolated command string rather than an argument vector"
+  - "offending control characters are replayed into the terminal instead of being escaped in the evidence"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/commit-range.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      For every commit in `base..candidate` the check reads the full message
+      (subject and body, every line), the author name and e-mail and the
+      committer name and e-mail, and rejects anything outside printable ASCII
+      plus tab. The evidence names the commit, the field and the offending line,
+      with control characters escaped rather than replayed.
+  - type: behavior
+    statement: >
+      Tests build a real throwaway git repository and introduce a violating
+      commit through a path a `commit-msg` hook cannot see - a cherry-pick or a
+      rebase replay - then assert the range check rejects it, and assert that a
+      clean range of the same shape passes. Bypassing the hook in the fixture is
+      the point of the test, not a shortcut around it.
+  - type: behavior
+    statement: >
+      The check fails closed: an unknown revision, an unreachable base or a
+      non-zero git exit yields a `fail` record naming the cause, never a `pass`
+      and never a thrown error the caller has to catch to stay correct.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:git]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

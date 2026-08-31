@@ -1,0 +1,75 @@
+id: RT-02
+repo: repo-truth
+priority: 86
+milestone: M0
+title: The measurement rule over commit bodies and changed documentation
+
+outcome: >
+  "A number without a command and a date is not a fact" stops being a sentence
+  somebody has to remember. The check reads the commit bodies in `base..candidate`
+  and the changed lines of the documentation the range touches, finds the claims
+  that carry a figure, and answers whether each one is accompanied by the command
+  that prints it and the date it was taken. What it protects is the property that
+  makes a report auditable at all: a figure inherited from an upstream document
+  is an assumption wearing a number's clothes, and it reads exactly like a
+  measurement until somebody tries to re-run it.
+
+measure:
+  - npx vitest run test/unit/measurement-rule.test.ts
+
+not_done_if:
+  - "the rule is a regular expression over digits, so a version string, an ISO date, a SHA, a section number or a line reference is reported as an unmeasured claim and the check is switched off within a week"
+  - "only commit bodies are read and the changed documentation lines are not, or the reverse; the rule applies to both and a check covering half of it will be believed to cover all of it"
+  - "the whole file is scanned rather than the lines the range changed, so a repository adopting the check fails on prose nobody in this range wrote"
+  - "a claim inside a fenced code block or a quoted transcript is treated as a claim of the author's own"
+  - "the check has no way to pass, because every human sentence containing a numeral is a violation of it"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/measurement-rule.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The check reads the commit bodies of `base..candidate` and the added lines
+      of changed `.md` files, and reports as a violation a sentence that asserts
+      a measured quantity without either a command in the same block or a date.
+      Its evidence names the commit or file, the line, and which of the two
+      halves - command or date - is missing.
+  - type: behavior
+    statement: >
+      What is NOT a claim is pinned by tests, not by a comment: a version, a
+      SHA, an ISO date, a section or figure number, a line reference, a path
+      containing digits, and any line inside a fenced block each get a case
+      asserting the check stays silent about it.
+  - type: behavior
+    statement: >
+      A test drives a range holding one violating body and one compliant body of
+      the same shape - same figure, one with its command and date - and asserts
+      the check separates them, so the test would fail if the rule degenerated
+      into "any digit is a violation".
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:git]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

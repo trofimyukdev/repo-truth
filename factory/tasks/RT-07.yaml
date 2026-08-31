@@ -1,0 +1,79 @@
+id: RT-07
+repo: repo-truth
+priority: 76
+milestone: M0
+title: One entry point - `repo-truth check` runs the checks and answers with records
+
+outcome: >
+  Six checks that each have to be imported and wired by hand are a library; one
+  command that runs them over a range and prints what it found is a gate somebody
+  else can adopt. `repo-truth check --base <rev> --candidate <rev>` runs every
+  registered check, prints the records in a form a human reads and a form a
+  machine parses, and exits on a stated code. What makes this a task of its own
+  rather than a wrapper is the exit-code contract: the difference between "a check
+  found a defect" and "the tool could not run" has to be visible to a caller that
+  reads nothing but the exit status, or every CI adopting this will treat a broken
+  invocation as a clean repository.
+
+measure:
+  - npx vitest run test/unit/cli.test.ts
+
+not_done_if:
+  - "a failed check and a failed invocation share an exit code, so a CI job that reads only the status treats a crash as a pass or a pass as a crash"
+  - "the machine-readable output is the human output with the colours removed, so any change to the wording breaks every parser downstream"
+  - "the check list is assembled inside the command, so adding a check means editing the command and the two can disagree about what ran"
+  - "a check that throws takes the whole command down, and the records the other checks already produced are lost"
+  - "the command resolves the base from a local ref without fetching, reintroducing the stale-base hole RT-01 closes inside its own check"
+  - "there is no way to run a subset, so a repository adopting one check has to accept all of them or none"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/cli.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The exit codes are stated in one place and pinned by a test each: success,
+      at least one check failed, and bad invocation or unrunnable environment are
+      three distinct codes, and the third is never returned for the second.
+  - type: behavior
+    statement: >
+      The registry of checks is data the command reads, not a list inside it. A
+      test asserts that the command runs exactly what the registry holds, so a
+      check added to the registry cannot be silently absent from a run.
+  - type: behavior
+    statement: >
+      A check that throws is turned into a `fail` record naming the check and the
+      error, and the run continues; a test drives a deliberately throwing check
+      and asserts the other checks' records still reach the output.
+  - type: behavior
+    statement: >
+      The machine-readable output is a documented structure emitted independently
+      of the human rendering, and a test parses it rather than matching a
+      substring of the prose.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+  - package.json
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: [RT-01]
+discovered_from: null
+resources: [repo-truth:cli]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

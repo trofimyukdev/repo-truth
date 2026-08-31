@@ -1,0 +1,81 @@
+id: RT-04
+repo: repo-truth
+priority: 82
+milestone: M0
+title: Weakened-tests detector - the suite got greener and nothing got better
+
+outcome: >
+  The cheapest way for an agent to make a red suite green is to make the suite
+  ask less, and it is also the hardest thing for a green build to reveal. This
+  check reads the diff of `base..candidate` and reports the moves that lower what
+  the suite asserts: a test newly marked `.skip`, `.todo` or `xit`, a `.only`
+  narrowing a run to a passing subset, a coverage or performance threshold
+  lowered, a snapshot refreshed in the same commit that changed the code it
+  snapshots, a timeout raised, an assertion deleted from a test that still bears
+  its name. Each of those is legitimate SOMETIMES, so the check reports them for
+  a human to sanction rather than pretending to know intent - what it removes is
+  the possibility of one happening unnoticed.
+
+measure:
+  - npx vitest run test/unit/weakened-tests.test.ts
+
+not_done_if:
+  - "a deleted test file is not a finding, so the whole suite can be removed without the check saying anything"
+  - "the check reads the file at the tip rather than the diff, so a `.skip` that was already there is reported every run and the noise makes the check worthless"
+  - "a snapshot refresh is flagged whether or not the code under it changed, which is the false positive that gets this check switched off first"
+  - "the runner's spellings are hard-coded to one framework's names, with no stated list a consumer can extend, so adopting the check means editing the package"
+  - "a finding carries no way for the author to sanction it, so the only ways past the check are to fake the fix or to disable the check"
+  - "raising a timeout or lowering a threshold is treated as equivalent to skipping a test, so the report cannot be triaged"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/weakened-tests.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The check reads the diff, not the tip, and reports each weakening move with
+      the file, the line and which category it fell into. A `.skip` that predates
+      the range produces nothing; the same `.skip` added inside the range
+      produces one finding.
+  - type: behavior
+    statement: >
+      A snapshot file refreshed in a range that also changes the code it covers
+      is one finding; a snapshot refreshed alone, and a code change with no
+      snapshot touched, are both silent. The three cases are three tests.
+  - type: behavior
+    statement: >
+      A test asserts that deleting a test file, deleting an assertion from a test
+      that keeps its name, and lowering a numeric threshold are each detected -
+      the three moves that leave the suite green while it asserts less.
+  - type: behavior
+    statement: >
+      The recognised spellings live in one exported table with a documented shape
+      rather than inline in the matcher, so a consumer on another runner adds its
+      own without editing the matcher, and a test reads that table rather than
+      restating its contents.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: high
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 4.00
+  verify_usd: 2.50
+  wall_minutes: 45
+
+merge: { mode: auto }

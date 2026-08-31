@@ -1,0 +1,74 @@
+id: RT-08
+repo: repo-truth
+priority: 74
+milestone: M0
+title: A GitHub Action wrapper that resolves the range a pull request actually is
+
+outcome: >
+  The checks are only adopted if using them costs a few lines of workflow rather
+  than a script per repository. The wrapper is thin on purpose - it resolves the
+  range and calls the command from RT-07, and it owns nothing else - because the
+  hard half is the resolution: a pull request's range is the merge base against
+  the target branch, not the target branch's tip, and a default shallow checkout
+  does not contain the merge base at all. A wrapper that gets this wrong reports a
+  clean result on the wrong range, which is worse than reporting nothing, and it
+  does so silently on exactly the repositories most likely to adopt it.
+
+measure:
+  - npx vitest run test/unit/action.test.ts
+
+not_done_if:
+  - "the range is taken as `origin/<target>..HEAD` rather than the merge base, so commits already on the target are re-checked and a rebased branch reports findings that are not its own"
+  - "a shallow checkout that does not contain the merge base yields a pass instead of a stated failure naming the fetch depth as the cause"
+  - "the wrapper re-implements any check rather than calling the entry point from RT-07"
+  - "a check failure is reported as a workflow error, or a workflow error as a check failure, so the exit-code contract RT-07 pins is lost at the boundary that most consumers see"
+  - "the range resolution lives only in shell inside a YAML file and has no test, which is where this kind of defect always survives"
+  - "the wrapper is documented as working on push events as well as pull requests without a stated range rule for them"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      Range resolution is a tested function in `src/`, not shell embedded in YAML.
+      Tests cover a pull request against a moved target branch, a rebased branch,
+      and a merge commit on the target, and assert the resolved base is the merge
+      base in each.
+  - type: behavior
+    statement: >
+      A checkout that does not contain the merge base produces a failure naming
+      the missing history and the fetch depth needed, never a pass. A test drives
+      a shallow fixture and asserts the message says what to change.
+  - type: behavior
+    statement: >
+      The wrapper's own outcome distinguishes a check failure from a wrapper
+      failure using the exit codes RT-07 states, asserted by a test rather than
+      by reading the workflow file.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+  - .github/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: [RT-07]
+discovered_from: null
+resources: [repo-truth:cli]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

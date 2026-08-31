@@ -1,0 +1,73 @@
+id: RT-03
+repo: repo-truth
+priority: 84
+milestone: M0
+title: Trailer check - a landing says which task it closes, in a machine-readable line
+
+outcome: >
+  A commit that closes a queued task carries a trailer naming the task, and the
+  check answers whether the range's landings do. The reason this is a check and
+  not a convention is that the trailer is the ONLY signal a later reader has for
+  "this work was already integrated": a subject line is prose that a rebase or a
+  squash rewrites, while a trailer survives and can be matched exactly. A range
+  whose landings carry no trailer cannot be reconciled against a queue at all,
+  and the reconciliation is what makes an unattended factory able to tell a
+  finished task from a lost one.
+
+measure:
+  - npx vitest run test/unit/trailers.test.ts
+
+not_done_if:
+  - "the trailer is matched anywhere in the message rather than in the trailer block, so a task id mentioned in a prose paragraph counts as a closing signal"
+  - "git's own trailer parsing rules are re-implemented by splitting on a colon, so a folded trailer, a trailer with an empty value or a message with no blank line before its block is misread"
+  - "every commit in the range is required to carry a trailer, including the fix commits inside one task, which makes the check unusable and it gets switched off"
+  - "a malformed trailer - right key, unparseable value - is silently ignored rather than reported, which is the one case that hides a real reconciliation failure"
+  - "the check cannot say WHICH commits are missing the trailer, only that some are"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/trailers.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The check reads the trailer block of each commit in `base..candidate` by
+      git's own rules rather than by splitting text, and reports the commits that
+      close a task without naming it. Its evidence lists each offending commit
+      with its subject, so the report is actionable without a second git command.
+  - type: behavior
+    statement: >
+      Which commits are REQUIRED to carry a trailer is a stated rule with a test
+      per branch of it, not an implicit "all of them": a test asserts that a
+      range holding one trailered landing and several intermediate commits
+      passes, and that a range holding a landing with no trailer fails.
+  - type: behavior
+    statement: >
+      A trailer whose key is right and whose value does not parse as a task id is
+      reported as a violation naming the value, distinct in the evidence from an
+      absent trailer, because the two need different fixes.
+
+allowed_paths:
+  - src/**
+  - test/unit/**
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:git]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 2.50
+  verify_usd: 1.50
+  wall_minutes: 45
+
+merge: { mode: auto }
