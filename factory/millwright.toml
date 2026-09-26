@@ -35,3 +35,12 @@ mode = "auto"
 # repository has nothing to deploy anyway - it publishes a package, which is a
 # release and not a deploy.
 enabled = false
+
+[models.builder_hard]
+id = "claude-opus-5-5"
+
+[models.adjudicator]
+id = "claude-opus-5-5"
+
+[models.scout]
+id = "claude-opus-5-5"
