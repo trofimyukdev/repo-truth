@@ -44,3 +44,6 @@ id = "claude-opus-5-5"
 
 [models.scout]
 id = "claude-opus-5-5"
+
+[models.builder_default]
+id = "claude-sonnet-5-5"
