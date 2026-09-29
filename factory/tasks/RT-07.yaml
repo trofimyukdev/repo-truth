@@ -20,14 +20,26 @@ outcome: >
   and the fix cycle's candidate passed the reviewer and was refused by the gate
   on condition 2 alone, over one prose entry about the unrun smoke stage (the
   controller's journal of this repository, GATE_FAILED seq 1079). Nothing below
-  changes: this version is the same task, enqueued again so that the factory
-  takes it from the start.
+  changed then: that version was the same task, enqueued again so that the
+  factory took it from the start.
+
+  REISSUED AGAIN on 2026-09-29 by the operator's word, with one case added.
+  The second version's candidate passed the gate (GATE_PASSED seq 1129 of the
+  same journal) and was held by the shadow merge policy. Built and run by hand
+  after the gate, it answered a `--base` that names no commit in the repository
+  with the failed-check code instead of the bad-invocation code: the revision
+  reached a check unresolved and came back as that check's `fail` record, which
+  is the not_done_if line that opens "a failed check and a failed invocation
+  share an exit code". The acceptance and not_done_if below now name that case;
+  the rest of the task is unchanged, and the factory takes it from the start
+  again.
 
 measure:
   - npx vitest run test/unit/cli.test.ts
 
 not_done_if:
   - "a failed check and a failed invocation share an exit code, so a CI job that reads only the status treats a crash as a pass or a pass as a crash"
+  - "a revision that names no commit reaches a check unresolved and comes back as that check's `fail` record, so the failed-check code answers for an invocation that could not run"
   - "the machine-readable output is the human output with the colours removed, so any change to the wording breaks every parser downstream"
   - "the check list is assembled inside the command, so adding a check means editing the command and the two can disagree about what ran"
   - "a check that throws takes the whole command down, and the records the other checks already produced are lost"
@@ -43,6 +55,15 @@ acceptance:
       The exit codes are stated in one place and pinned by a test each: success,
       at least one check failed, and bad invocation or unrunnable environment are
       three distinct codes, and the third is never returned for the second.
+  - type: behavior
+    statement: >
+      A `--base` or a `--candidate` that names no commit in the repository - a
+      typo, or a revision the checkout does not hold - makes the environment
+      unrunnable whether or not the command fetched first: it exits with the
+      bad-invocation code, writes nothing to stdout, names the revision on
+      stderr, and runs no check. A test drives `--base` and `--candidate` each
+      with a revision that does not exist and asserts the code and the empty
+      stdout.
   - type: behavior
     statement: >
       The registry of checks is data the command reads, not a list inside it. A
