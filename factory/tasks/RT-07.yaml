@@ -15,6 +15,14 @@ outcome: >
   reads nothing but the exit status, or every CI adopting this will treat a broken
   invocation as a clean repository.
 
+  REISSUED on 2026-09-29 by the operator's word. The first version of this
+  task spent its quality attempts: the reviewer refused its first candidate,
+  and the fix cycle's candidate passed the reviewer and was refused by the gate
+  on condition 2 alone, over one prose entry about the unrun smoke stage (the
+  controller's journal of this repository, GATE_FAILED seq 1079). Nothing below
+  changes: this version is the same task, enqueued again so that the factory
+  takes it from the start.
+
 measure:
   - npx vitest run test/unit/cli.test.ts
 
