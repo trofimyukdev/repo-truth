@@ -47,3 +47,10 @@ id = "claude-opus-5-5"
 
 [models.builder_default]
 id = "claude-sonnet-5-5"
+
+# The weekly ceiling a tick checks in its preamble (DESIGN.md section 11) is
+# min(weekly_threshold_pct, 100 - weekly_reserve_pct). Raised from the
+# defaults, 85 and 10, to 95 and 5 on the operator's word of 2026-09-30.
+[budget]
+weekly_threshold_pct = 95
+weekly_reserve_pct = 5
