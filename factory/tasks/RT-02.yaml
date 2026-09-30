@@ -14,6 +14,24 @@ outcome: >
   is an assumption wearing a number's clothes, and it reads exactly like a
   measurement until somebody tries to re-run it.
 
+  REISSUED on 2026-09-30,
+  on the operator's word of that day that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names.
+  The first version spent its quality attempts: the verification walk
+  refused its first candidate, and the gate refused the second (GATE_FAILED
+  seq 218 of the controller's journal of this repository) on two conditions
+  nobody could measure - dimensions the reviewer left unverified, and a goal
+  evaluator that did not exist yet - while no road led from the gate back
+  to a fix cycle. The factory has since gained the goal evaluator, that
+  road, a mutation measurement carried to the next pass when its time runs
+  out, and a gate that runs holdout items. This version adds one holdout
+  item, which the gate runs and the builder is never shown, and states in
+  the acceptance below the interface it measures: the function, the name of
+  its record, what a block, a command and a date are, and the words its
+  evidence uses. The not_done_if lines are unchanged, and the factory takes
+  the task from the start again.
+
 measure:
   - npx vitest run test/unit/measurement-rule.test.ts
 
@@ -30,11 +48,25 @@ acceptance:
     required: true
   - type: behavior
     statement: >
-      The check reads the commit bodies of `base..candidate` and the added lines
-      of changed `.md` files, and reports as a violation a sentence that asserts
-      a measured quantity without either a command in the same block or a date.
-      Its evidence names the commit or file, the line, and which of the two
-      halves - command or date - is missing.
+      `src/measurement-rule.ts` exports `checkMeasurementRule(options)`, where
+      `options` is `{ cwd, base, candidate }`, and which returns a
+      `CheckRecord` (src/index.ts) named `RT-02`, or a promise of one. It
+      reads, through git with an argument vector, the body of every commit in
+      `base..candidate` - the message without its subject line - and the lines
+      the range adds to changed `.md` files.
+  - type: behavior
+    statement: >
+      The check reports as a violation a line of the author's own prose that
+      asserts a measured quantity without both a command and a date in the
+      same block. A line inside a fenced block, or one that begins with `>`,
+      is quoted and not the author's own. A block is the whole body of one
+      commit, or one paragraph of a document - the lines between two blank
+      lines. A command is an inline code span or a fenced block in that block,
+      and a date is an ISO date in it. Each violation is one evidence line
+      that names the commit, by the first seven characters of its SHA at
+      least, or the document as `<path>:<line>`, and that names the missing
+      half by the word `command`, the word `date`, or both - never a half
+      the block holds.
   - type: behavior
     statement: >
       What is NOT a claim is pinned by tests, not by a comment: a version, a
@@ -47,6 +79,16 @@ acceptance:
       the same shape - same figure, one with its command and date - and asserts
       the check separates them, so the test would fail if the rule degenerated
       into "any digit is a violation".
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-02.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**

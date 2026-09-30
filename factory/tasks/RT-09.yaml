@@ -1,0 +1,111 @@
+id: RT-09
+repo: repo-truth
+priority: 95
+milestone: M0
+title: Conflict markers - the lines a range adds hold no leftover merge conflict
+
+outcome: >
+  A merge, a rebase or a cherry-pick that stops on a conflict writes marker
+  lines into the file, and whoever resolves it by editing around them can
+  commit them. A compiler catches that in some files and not in others: a
+  Markdown page, a YAML fixture or a JSON snapshot carries the markers
+  silently, and a green suite says nothing. This check reads the lines the
+  range adds and reports every conflict marker among them with its file and
+  line, and it stays silent about text that only resembles a marker, because a
+  check that fires on a Markdown heading is a check that gets switched off.
+
+  ADDED on 2026-09-30 with three sibling checks (RT-10, RT-11 and RT-12), on
+  the operator's word of that day that the factory grows this queue to ten
+  tasks its gate has judged. It depends on no other open task: it is one
+  module and its tests, and nothing else in the repository changes.
+
+measure:
+  - npx vitest run test/unit/conflict-markers.test.ts
+
+not_done_if:
+  - "the check scans the candidate's files whole rather than the lines the range adds, so a marker the base already holds - a fixture or a document quoting a conflict - fails every range after it"
+  - "a line the range removes is read as one it adds, so the commit that deletes a leftover marker is itself reported"
+  - "a Markdown heading underlined with seven equals signs is reported as a conflict separator, the false positive that gets this check switched off first"
+  - "a finding does not name its file and its line in the candidate, so the author has to search again for the marker the check already found"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "a line is taken for a marker when it only starts like one - eight marker characters, or seven followed by text with no space between"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/conflict-markers.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/conflict-markers.ts` exports `checkConflictMarkers(options)`, where
+      `options` is `{ cwd, base, candidate }` - the repository and the two
+      revisions - and which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-09`. It reads the lines `git diff <base>...<candidate>` shows as
+      added, through an argument vector and never from the working tree, and
+      nothing else: a line the base already holds, or one the range removes,
+      is never a finding.
+  - type: behavior
+    statement: >
+      A marker is a line that begins with exactly seven of one marker
+      character followed by whitespace or the end of the line: `<` opens a
+      conflict, `|` opens the common ancestor's part, `=` separates the two
+      sides and `>` closes it. An opening, an ancestor and a closing marker
+      are always findings. A separator is a finding only between an opening
+      marker and the next closing marker among the added lines of the same
+      file, so a Markdown heading underlined with seven equals signs is not
+      one.
+  - type: behavior
+    statement: >
+      The record fails when there is at least one finding and passes when
+      there is none. Each finding is one evidence line that opens with
+      `<path>:<line>:` - the path as the repository spells it, a path that
+      holds a space included, and the line number in the candidate's version
+      of the file - and names the marker's kind, one of `opening`, `base`,
+      `separator` or `closing`. A failing record's evidence holds those
+      lines and nothing else.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories and drive a range that adds a
+      conflict block, one that removes a leftover marker, one that adds a
+      Markdown heading underlined with equals signs, and one whose base
+      already holds a marker, and assert the record of each. Nothing outside
+      `src/conflict-markers.ts` and `test/unit/conflict-markers.test.ts`
+      changes, and `package.json` is not touched. Registering the check with the command RT-07
+      builds is not part of this task.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-09.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/conflict-markers.ts
+  - test/unit/conflict-markers.test.ts
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

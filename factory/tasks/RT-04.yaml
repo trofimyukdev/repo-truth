@@ -16,16 +16,35 @@ outcome: >
   a human to sanction rather than pretending to know intent - what it removes is
   the possibility of one happening unnoticed.
 
+  REISSUED on 2026-09-30, NARROWED,
+  on the operator's word of that day that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names.
+  The first version could not finish its own measurement: its candidate
+  was one module close to a thousand lines long, whose mutation run measured
+  a small share of it before the time ceiling stopped it (FIX_CYCLE_DEFERRED
+  seq 885 of the controller's journal of this repository), and whose fix
+  cycle then did not fit the tick's wall (TASK_BLOCKED seq 898). The factory
+  now carries an unfinished measurement to the next pass a bounded number of
+  times and then refuses to judge it, and at the rate that run measured, a
+  module that size needs far more passes than the carry allows. This version
+  therefore keeps the moves that disable or remove a
+  test - a skip or focus marker the range adds, a deleted test file, a
+  removed test, a removed assertion - with the sanction and the extensible
+  table, and leaves the re-recorded snapshot, the lowered threshold and the
+  raised timeout to a later task. It adds one holdout item, which the gate
+  runs and the builder is never shown, and states in the acceptance below the
+  interface it measures. The factory takes the task from the start again.
+
 measure:
   - npx vitest run test/unit/weakened-tests.test.ts
 
 not_done_if:
   - "a deleted test file is not a finding, so the whole suite can be removed without the check saying anything"
   - "the check reads the file at the tip rather than the diff, so a `.skip` that was already there is reported every run and the noise makes the check worthless"
-  - "a snapshot refresh is flagged whether or not the code under it changed, which is the false positive that gets this check switched off first"
   - "the runner's spellings are hard-coded to one framework's names, with no stated list a consumer can extend, so adopting the check means editing the package"
   - "a finding carries no way for the author to sanction it, so the only ways past the check are to fake the fix or to disable the check"
-  - "raising a timeout or lowering a threshold is treated as equivalent to skipping a test, so the report cannot be triaged"
+  - "a skip, a focus marker and a deletion come out as one undifferentiated finding, so the report cannot be triaged"
 
 acceptance:
   - type: command
@@ -33,26 +52,60 @@ acceptance:
     required: true
   - type: behavior
     statement: >
+      `src/weakened-tests.ts` exports `checkWeakenedTests(options)`, where
+      `options` is `{ cwd, base, candidate, spellings?, sanctions? }`, and
+      which resolves to a `CheckRecord` (src/index.ts) named `RT-04` that
+      also carries `findings`: one entry per move, `{ id, category, file,
+      line, side, detail, sanction }`, where `id` is
+      `<category>:<file>:<line>`, `side` is `candidate` for a line the range
+      added and `base` for one it removed, and `sanction` is the sanction's
+      reason or `null`. The categories of this version are `skip` (a test
+      newly marked skipped or todo), `only` (a focus marker), and
+      `test-file-deleted`, `test-removed` and `assertion-removed`.
+  - type: behavior
+    statement: >
       The check reads the diff, not the tip, and reports each weakening move with
       the file, the line and which category it fell into. A `.skip` that predates
       the range produces nothing; the same `.skip` added inside the range
-      produces one finding.
+      produces one finding, and a marker line the range only moves - removed
+      and added back unchanged - produces none.
   - type: behavior
     statement: >
-      A snapshot file refreshed in a range that also changes the code it covers
-      is one finding; a snapshot refreshed alone, and a code change with no
-      snapshot touched, are both silent. The three cases are three tests.
+      A test asserts that deleting a test file, removing a test from a file
+      that still exists, and deleting an assertion from a test that keeps its
+      name are each detected - the moves that leave the suite green while it
+      asserts less.
   - type: behavior
     statement: >
-      A test asserts that deleting a test file, deleting an assertion from a test
-      that keeps its name, and lowering a numeric threshold are each detected -
-      the three moves that leave the suite green while it asserts less.
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range, where `<id>` is the finding's `id` or
+      `<category>:<file>`, or by the caller's `sanctions` option, a plain
+      object whose keys are ids or `<category>:<file>` and whose values are
+      the reasons. The record fails while any finding is unsanctioned, and passes
+      once every one is, with the sanctioned findings still listed.
   - type: behavior
     statement: >
       The recognised spellings live in one exported table with a documented shape
       rather than inline in the matcher, so a consumer on another runner adds its
       own without editing the matcher, and a test reads that table rather than
-      restating its contents.
+      restating its contents. The table is `WEAKENING_SPELLINGS`, and the
+      check reads the one the caller passes as `spellings` in its place. Its
+      `markers` entry is a list of `{ category, scope, pattern, example }`:
+      `category` is `skip` or `only`, `scope` lists the kinds of file the
+      marker applies to (`test`, `config` or `any`), `pattern` is a
+      regular expression (a `RegExp`) tested against each added or removed
+      line, and `example` is a line the pattern matches. Test files include
+      `*.test.ts` and `*.spec.ts`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-04.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**

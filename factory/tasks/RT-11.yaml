@@ -1,0 +1,109 @@
+id: RT-11
+repo: repo-truth
+priority: 93
+milestone: M0
+title: Symlinks - no link the range adds or changes points outside the repository
+
+outcome: >
+  A symbolic link is committed as a blob that holds its target, and a diff
+  shows it as one short line of text, so a link to `/etc/passwd` or to
+  `../../.ssh` reads like a harmless file in review. Every tool that later
+  reads the tree through the filesystem - a build, a packer, a documentation
+  site, the next agent - follows it out of the repository. This check reads
+  every link the range adds or changes, takes the target from the candidate's
+  own blob, resolves it from the link's own directory, and reports a target
+  that is absolute, that resolves outside the repository, or that lands in its
+  `.git` directory.
+
+  ADDED on 2026-09-30 with three sibling checks (RT-09, RT-10 and RT-12), on
+  the operator's word of that day that the factory grows this queue to ten
+  tasks its gate has judged. It depends on no other open task: it is one
+  module and its tests, and nothing else in the repository changes.
+
+measure:
+  - npx vitest run test/unit/symlinks.test.ts
+
+not_done_if:
+  - "the target is read from the working tree or through the filesystem rather than from the candidate's blob, so the answer depends on the checkout the check happens to run in"
+  - "`..` segments are compared as text rather than resolved from the link's own directory, so `a/b/../../../x` passes as a link that stays inside, or `sub/up -> ../README.md` is refused as one that leaves"
+  - "only links the range adds are read, so a link the range retargets, or a file it turns into a link, passes unread"
+  - "a link into the repository's own `.git` directory is accepted because it stays inside the root"
+  - "a finding does not name the link, its target and the rule it breaks"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/symlinks.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/symlinks.ts` exports `checkSymlinks(options)`, where `options` is
+      `{ cwd, base, candidate }` - the repository and the two revisions - and
+      which resolves to a `CheckRecord` (src/index.ts) named `RT-11`. It reads
+      every entry the range adds, modifies or changes the type of between the
+      merge base of `base` and `candidate` and `candidate` whose new mode is a
+      symbolic link, and takes each target from that entry's blob in the
+      object store, through git with an argument vector; a link the range
+      leaves alone or deletes is never read.
+  - type: behavior
+    statement: >
+      The rules, each named in its finding by the word in brackets. [absolute]
+      A target that begins with `/`, with two backslashes as a network path
+      does, or with a drive letter and a colon. [outside] A relative target that, resolved segment by segment
+      from the directory holding the link, climbs above the repository root
+      at any point. [.git] A target that resolves into the repository's
+      `.git` directory, in any letter case. A target that resolves inside the
+      repository is not a finding whether or not anything exists there.
+  - type: behavior
+    statement: >
+      The record fails when there is at least one finding and passes when
+      there is none. Each finding is one evidence line that names the link's
+      path, its target and the rule's word, with every character outside
+      printable ASCII escaped rather than replayed. A failing record's
+      evidence holds those lines and nothing else.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories with real links and drive each
+      rule, a link retargeted by the range, a file turned into a link, and a
+      base that already holds an escaping link, and assert the record of
+      each. Nothing outside `src/symlinks.ts` and `test/unit/symlinks.test.ts`
+      changes, and `package.json` is not touched. Registering the check with the command RT-07
+      builds is not part of this task.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-11.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/symlinks.ts
+  - test/unit/symlinks.test.ts
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

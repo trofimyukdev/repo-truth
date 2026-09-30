@@ -14,6 +14,23 @@ outcome: >
   substitution takes when it arrives through an agent's diff. The check answers
   which of the two happened, for whichever lockfiles the repository actually has.
 
+  REISSUED on 2026-09-30,
+  on the operator's word of that day that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names.
+  The first version was measured and refused by the gate on condition 2 -
+  dimensions the reviewer left unverified - with surviving mutants as the one
+  confirmed finding (GATE_FAILED seq 940 of the controller's journal of this
+  repository), and its fix cycle did not fit the tick's wall (TASK_BLOCKED
+  seq 985). The factory has since gained a fix cycle that opens on its
+  builder's share of the wall and carries the rest of the walk to the next
+  pass, a condition 2 that no longer counts a pointer at a smoke stage no
+  trigger configured, and a gate that runs holdout items. This version adds
+  one holdout item, which the gate runs and the builder is never shown, and
+  states in the acceptance below the interface it measures: the function,
+  the files it reads, and what each record says. The not_done_if lines are
+  unchanged, and the factory takes the task from the start again.
+
 measure:
   - npx vitest run test/unit/lockfile-drift.test.ts
 
@@ -30,10 +47,23 @@ acceptance:
     required: true
   - type: behavior
     statement: >
+      `src/lockfile-drift.ts` exports `checkLockfileDrift(options)`, where
+      `options` is `{ cwd, base, candidate }`, and which resolves to a
+      `CheckRecord` (src/index.ts) named `RT-06`. The manifest is the
+      repository root's `package.json`, and its dependency fields are
+      `dependencies`, `devDependencies`, `peerDependencies`,
+      `optionalDependencies` and `bundledDependencies`. The lockfiles it
+      recognises include `package-lock.json`, `yarn.lock` and
+      `pnpm-lock.yaml` at the root, and a lockfile is compared by its content
+      at the two revisions, never parsed. Both files are read from the two
+      revisions through git with an argument vector.
+  - type: behavior
+    statement: >
       Given a range that changes a dependency field of the manifest and not the
       lockfile, the check fails naming that direction; given the reverse, it fails
       naming the other; given both changed together, it passes. Three tests, one
-      per case.
+      per case. Each `fail` names the manifest and the lockfile, and the two
+      directions are told apart by different words.
   - type: behavior
     statement: >
       A manifest change confined to non-dependency fields produces nothing, pinned
@@ -43,6 +73,16 @@ acceptance:
       A repository whose lockfile the check does not recognise, or which has none,
       yields a `skip` record naming what it looked for - never a `pass`, because a
       gate that reads a silent pass as coverage is a gate that stops covering this.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-06.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**

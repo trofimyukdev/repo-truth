@@ -1,0 +1,104 @@
+id: RT-12
+repo: repo-truth
+priority: 92
+milestone: M0
+title: Large blobs - what the range adds to the history stays under a stated size
+
+outcome: >
+  A file committed and deleted again is gone from the tree and still in every
+  clone, because history keeps each blob a commit ever held. A build artefact,
+  a dataset or a vendored archive an agent committed by accident is therefore
+  a cost the repository keeps paying after the fix that removed it, and a
+  check that reads only the final tree says the fix worked. This check
+  measures every blob the range brings into the history against a size limit
+  the repository can set, and names each one over it - including the ones the
+  candidate's own tree no longer holds, and never the ones the base already
+  had.
+
+  ADDED on 2026-09-30 with three sibling checks (RT-09, RT-10 and RT-11), on
+  the operator's word of that day that the factory grows this queue to ten
+  tasks its gate has judged. It depends on no other open task: it is one
+  module and its tests, and nothing else in the repository changes.
+
+measure:
+  - npx vitest run test/unit/large-blobs.test.ts
+
+not_done_if:
+  - "only the candidate's tree is measured, so a blob added and deleted again inside the range - which every clone still downloads - passes"
+  - "a large blob the base already holds is reported because the range renamed it, copied it or changed a file beside it"
+  - "the size is read from the working tree rather than from the object, so the answer depends on the checkout the check happens to run in"
+  - "the limit is a constant inside the check, with no way for a repository to set its own"
+  - "a finding does not name the path, the blob's size and the limit it broke"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/large-blobs.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/large-blobs.ts` exports `checkLargeBlobs(options)`, where `options`
+      is `{ cwd, base, candidate, maxBytes? }`, and `DEFAULT_MAX_BLOB_BYTES`,
+      the limit when `maxBytes` is absent: 1048576, one mebibyte. The check
+      resolves to a `CheckRecord` (src/index.ts) named `RT-12`. It measures
+      every blob reachable from `candidate` and not from `base` - a blob a
+      later commit of the range deleted included - taking each size from the
+      object store through git with an argument vector, never from the
+      working tree. A blob reachable from `base` is never a finding.
+  - type: behavior
+    statement: >
+      A blob larger than the limit is a finding, and a blob exactly at the
+      limit is not. The record fails when there is at least one finding and
+      passes when there is none. Each finding is one evidence line that names
+      a path the blob was committed at, its size in bytes and the limit, each
+      written as a plain integer, and that says `only in history` when the
+      candidate's tree no longer holds that blob. A failing record's evidence
+      holds those lines and nothing else.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails, or a `maxBytes` that is not a positive integer,
+      yields one whose evidence names the cause - never a `pass`, and never a
+      thrown error.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories and drive a blob one byte over
+      the limit and one exactly at it, a blob added and deleted inside the
+      range, a large blob of the base that the range renames, and a limit the
+      caller sets, and assert the record of each. Nothing outside
+      `src/large-blobs.ts` and `test/unit/large-blobs.test.ts` changes, and
+      `package.json` is not touched. Registering the check with the command RT-07
+      builds is not part of this task.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-12.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/large-blobs.ts
+  - test/unit/large-blobs.test.ts
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

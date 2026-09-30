@@ -14,6 +14,24 @@ outcome: >
   disagreeing is itself the finding: either the file should not be there or the
   ignore rules are wrong.
 
+  REISSUED on 2026-09-30,
+  on the operator's word of that day that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names.
+  The first version was measured and refused by the gate on condition 2 -
+  dimensions the reviewer left unverified - with surviving mutants as the one
+  confirmed finding (GATE_FAILED seq 747 of the controller's journal of this
+  repository), and its fix cycle did not fit the tick's wall (TASK_BLOCKED
+  seq 834). The factory has since gained a fix cycle that opens on its
+  builder's share of the wall and carries the rest of the walk to the next
+  pass, a condition 2 that no longer counts a pointer at a smoke stage no
+  trigger configured, and a gate that runs holdout items. This version adds
+  one holdout item, which the gate runs and the builder is never shown, and
+  states in the acceptance below the interface it measures: the function,
+  the list and its entries, the shapes it must hold at least, and the words
+  its evidence uses. The not_done_if lines are unchanged, and the factory
+  takes the task from the start again.
+
 measure:
   - npx vitest run test/unit/stray-files.test.ts
 
@@ -30,6 +48,17 @@ acceptance:
     required: true
   - type: behavior
     statement: >
+      `src/stray-files.ts` exports `checkStrayFiles(options)`, where `options`
+      is `{ cwd, base, candidate }`, and which resolves to a `CheckRecord`
+      (src/index.ts) named `RT-05`. It also exports `STRAY_SHAPES`, an array
+      of `{ name, description, pattern }` whose `pattern` is a regular
+      expression (a `RegExp`) tested against the added path, and reads that array each time it
+      runs, so a shape a consumer appends to it is applied. The list holds at
+      least a `.log` file, an editor backup such as `config.ts.bak`, a copy set
+      aside such as `index 2.ts`, anything under `coverage/`, and anything
+      under `dist/` or `build/`.
+  - type: behavior
+    statement: >
       The check reads only the paths `base..candidate` ADDS, and each finding
       names the path and the rule that matched it. A rename or a modification of
       a file with the same name produces nothing.
@@ -38,12 +67,26 @@ acceptance:
       An added path that the repository's own ignore rules would exclude is
       reported as its own category, distinct in the evidence from a name-shape
       match, because the fix differs: one deletes a file, the other corrects the
-      rules.
+      rules. A shape finding is one evidence line that names the path and the
+      shape's `name`; an ignore finding is one that names the path and the
+      words `ignore rules`. The ignore rules are the ones `git check-ignore`
+      reads in the checkout the check runs in, applied to an added path even
+      though it is tracked.
   - type: behavior
     statement: >
       The stray shapes are one exported, documented list, and a test reads that
       list rather than restating its entries, so adding a shape cannot leave the
       test asserting the old set.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-05.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**

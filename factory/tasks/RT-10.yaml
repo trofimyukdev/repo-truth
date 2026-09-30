@@ -1,0 +1,112 @@
+id: RT-10
+repo: repo-truth
+priority: 94
+milestone: M0
+title: Portable paths - no name the range introduces breaks a checkout on another system
+
+outcome: >
+  Linux accepts almost any byte in a file name, so a repository developed
+  there takes in `Readme.md` beside `README.md`, a file called `aux.ts` or a
+  name that ends in a dot, and every check on Linux stays green. A clone on
+  macOS or Windows then silently keeps one of two files, or cannot check the
+  tree out at all. This check reads the names the range introduces and reports
+  the ones another operating system cannot hold, each with the rule it breaks,
+  and it leaves alone what the base already held, because a check that fails
+  on names nobody in the range wrote is a check that gets switched off.
+
+  ADDED on 2026-09-30 with three sibling checks (RT-09, RT-11 and RT-12), on
+  the operator's word of that day that the factory grows this queue to ten
+  tasks its gate has judged. It depends on no other open task: it is one
+  module and its tests, and nothing else in the repository changes.
+
+measure:
+  - npx vitest run test/unit/portable-paths.test.ts
+
+not_done_if:
+  - "only the paths the range adds are compared with one another, so an added `Readme.md` beside the base's `README.md` passes"
+  - "two directories that differ only in letter case are not compared, so `Docs/a.md` added beside `docs/b.md` passes although a case-insensitive checkout merges the two directories"
+  - "a reserved device name is matched only as a whole name, so `aux.ts`, `nul.tar.gz` or a directory called `con` passes although Windows refuses each of them"
+  - "a problem the base already holds is reported against every range, so the check fails on names nobody in the range wrote"
+  - "a finding does not name the path and the rule it breaks, or replays a control character from a name into the terminal"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/portable-paths.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/portable-paths.ts` exports `checkPortablePaths(options)`, where
+      `options` is `{ cwd, base, candidate }` - the repository and the two
+      revisions - and which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-10`. A name is a path of a tree or a directory above one, and the
+      range introduces a name when the candidate's tree holds it and the tree
+      of the merge base of `base` and `candidate` does not; both trees are
+      read through git with an argument vector, never from the working tree.
+      A rename's destination is a name the range introduces.
+  - type: behavior
+    statement: >
+      The rules, each named in its finding by the word in brackets. [case]
+      Two names of the candidate's tree that differ only in letter case, when
+      at least one of them is introduced by the range; directories are
+      compared as well as files. [reserved] A name whose last component,
+      before its first dot and in any letter case, is CON, PRN, AUX, NUL, COM1
+      to COM9 or LPT1 to LPT9, so `aux.ts`, `nul.tar.gz` and a directory
+      `con` are reserved and `auxiliary.ts` or `com10.txt` are not.
+      [trailing] A last component that ends in a dot or a space. [character]
+      A last component that holds one of `< > : " \ | ? *` or a control
+      character. Only names the range introduces are judged by the last
+      three rules.
+  - type: behavior
+    statement: >
+      The record fails when there is at least one finding and passes when
+      there is none. Each finding is one evidence line that names the path -
+      both spellings for a case finding - and the rule's word, with every
+      character outside printable ASCII escaped rather than replayed.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories and drive each rule, a
+      directory that differs only in case, a rename, and a base that already
+      holds a reserved name and a case pair, and assert the record of each.
+      Nothing outside `src/portable-paths.ts` and
+      `test/unit/portable-paths.test.ts` changes, and `package.json` is not
+      touched. Registering the check with the command RT-07
+      builds is not part of this task.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-10.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/portable-paths.ts
+  - test/unit/portable-paths.test.ts
+forbidden_paths:
+  - factory/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

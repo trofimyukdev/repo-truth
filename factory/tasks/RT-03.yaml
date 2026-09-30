@@ -14,6 +14,24 @@ outcome: >
   and the reconciliation is what makes an unattended factory able to tell a
   finished task from a lost one.
 
+  REISSUED on 2026-09-30,
+  on the operator's word of that day that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names.
+  The first version spent its quality attempts: the gate refused its
+  candidates with condition 2 open - dimensions the reviewer left
+  unverified - and, the first time, a goal evaluator that gave no answer,
+  with surviving mutants as the one confirmed finding (GATE_FAILED seq 392
+  and seq 590 of the controller's journal of this repository), and the
+  second refusal was the last attempt. The factory has since gained a
+  mutation measurement carried to the next pass when its time runs out, a
+  fix cycle that opens on its builder's share of the wall, and a gate that
+  runs holdout items. This version adds one holdout item, which the gate
+  runs and the builder is never shown, and states in the acceptance below
+  the interface it measures: the function, the trailer key, which commit is
+  the landing, and the words its evidence uses. The not_done_if lines are
+  unchanged, and the factory takes the task from the start again.
+
 measure:
   - npx vitest run test/unit/trailers.test.ts
 
@@ -28,6 +46,24 @@ acceptance:
   - type: command
     command: npx vitest run test/unit/trailers.test.ts
     required: true
+  - type: behavior
+    statement: >
+      `src/trailers.ts` exports `checkTrailers(options)`, where `options` is
+      `{ cwd, base, candidate }`, and which resolves to a `CheckRecord`
+      (src/index.ts) named `RT-03`. It also exports `TASK_TRAILER_KEY`, the
+      key `Task-Id`, and `TASK_ID_PATTERN`, the shape a value must have: a
+      letter, then letters or digits, a hyphen and digits, as in `RT-03`.
+  - type: behavior
+    statement: >
+      The landing is the candidate commit itself, and it is the one commit
+      required to carry a `Task-Id` trailer; the other commits of the range
+      are the task's intermediate work and need none, and a trailer on one of
+      them does not count for the landing. A landing with no such trailer is
+      a `fail` whose evidence names the first twelve characters of its SHA,
+      its subject and the words `no Task-Id trailer`; a trailer whose value
+      does not have the shape is a `fail` whose evidence names the value and
+      the words `does not parse`, and never the words of an absent one. An
+      empty range is a `pass`.
   - type: behavior
     statement: >
       The check reads the trailer block of each commit in `base..candidate` by
@@ -45,6 +81,16 @@ acceptance:
       A trailer whose key is right and whose value does not parse as a task id is
       reported as a violation naming the value, distinct in the evidence from an
       absent trailer, because the two need different fixes.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-03.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**
