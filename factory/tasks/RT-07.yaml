@@ -34,6 +34,15 @@ outcome: >
   the rest of the task is unchanged, and the factory takes it from the start
   again.
 
+  REISSUED A THIRD TIME on 2026-09-30, on the operator's word of that day
+  that every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names. This
+  version adds one holdout item, which the gate runs and the builder is never
+  shown, and states in the acceptance below the interface it measures: the
+  exit code values, the machine-readable document, the two options and the
+  registry. The not_done_if lines are unchanged, and the factory takes the
+  task from the start again.
+
 measure:
   - npx vitest run test/unit/cli.test.ts
 
@@ -52,9 +61,9 @@ acceptance:
     required: true
   - type: behavior
     statement: >
-      The exit codes are stated in one place and pinned by a test each: success,
-      at least one check failed, and bad invocation or unrunnable environment are
-      three distinct codes, and the third is never returned for the second.
+      The exit codes are stated in one place and pinned by a test each: 0 for
+      success, 1 when at least one check failed, and 2 for a bad invocation or
+      an unrunnable environment; 2 is never returned for a check's finding.
   - type: behavior
     statement: >
       A `--base` or a `--candidate` that names no commit in the repository - a
@@ -66,19 +75,43 @@ acceptance:
       stdout.
   - type: behavior
     statement: >
-      The registry of checks is data the command reads, not a list inside it. A
-      test asserts that the command runs exactly what the registry holds, so a
-      check added to the registry cannot be silently absent from a run.
+      The registry of checks is data the command reads, not a list inside it:
+      the array `REGISTRY` exported by `src/registry.ts`, whose entries are
+      `{ name, run }` - `run` is handed the repository and the resolved range
+      and returns a check record or a promise of one - and which the command
+      reads when it runs. A test asserts that the command runs exactly what the
+      registry holds, so a check added to the registry cannot be silently absent
+      from a run.
   - type: behavior
     statement: >
-      A check that throws is turned into a `fail` record naming the check and the
-      error, and the run continues; a test drives a deliberately throwing check
-      and asserts the other checks' records still reach the output.
+      A check that throws, or whose promise rejects, is turned into a `fail`
+      record naming the check and the error, and the run continues; a test
+      drives a deliberately throwing check and asserts the other checks' records
+      still reach the output.
   - type: behavior
     statement: >
       The machine-readable output is a documented structure emitted independently
-      of the human rendering, and a test parses it rather than matching a
-      substring of the prose.
+      of the human rendering, which is the default: `--format json` prints one
+      JSON document, `{"schema": "repo-truth.check/v1", "base": <commit id>,
+      "candidate": <commit id>, "ok": <boolean>, "exitCode": 0 | 1, "records":
+      [{"name": <string>, "status": "pass" | "fail" | "skip", "evidence":
+      [<string>]}]}`, with `base` and `candidate` the resolved commit ids. A test
+      parses it rather than matching a substring of the prose.
+  - type: behavior
+    statement: >
+      `--check <name>`, which may be repeated, runs only the named registered
+      checks, and a name the registry does not hold is a bad invocation. Without
+      `--no-fetch` the command fetches every remote before it resolves either
+      revision; with it, both revisions are resolved from the local refs as they
+      stand.
+  - type: behavior
+    statement: >
+      `package.json` maps `repo-truth` in its `bin` field to the built entry
+      point, which `npm run build` produces.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-07.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**
