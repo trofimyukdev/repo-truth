@@ -18,6 +18,15 @@
 # same file.
 version: 1
 
+# Every spec in this repository declares a holdout acceptance item - a
+# command item marked `holdout: true`, which the gate runs and the builder
+# is never shown. millwright holds a spec that declares none: intake refuses
+# a new version of it and reports a captured one, and the gate's condition 1
+# refuses it and parks the row BLOCKED with no quality attempt charged.
+# `false`, or no key, asks for nothing. millwright reads this key since
+# fa47bca (M0-272); an older millwright refuses it at every worker start.
+holdout_required: true
+
 deny:
   # An ordinary task may never change factory/**: that is the queue, the ladder
   # and this file, and a task that can edit its own acceptance criteria has
