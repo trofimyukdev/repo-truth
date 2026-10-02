@@ -23,11 +23,14 @@ remote = "origin"
 base_branch = "main"
 
 [merge]
-# `auto` is what this repository WANTS once it is trusted. It is not what will
-# happen next: shadow mode is on by default and nothing is merged while it is,
-# so this line describes the destination and the operator's switch decides when
-# the factory arrives at it.
+# `auto` is the mode this repository chose once it is trusted: a candidate
+# that passes the gate is merged into main and pushed, one task per tick.
+# `shadow` is the operator's switch over it: true (the default) merges
+# nothing. Thrown to false on 2026-10-02 with the soak ladder at rung 2
+# (supervised auto-merge); rung 1 refuses a merging tick, so walking back
+# down to rung 1 needs `shadow = true` here as well.
 mode = "auto"
+shadow = false
 
 [deploy]
 # Pinned, not defaulted: an off switch that only exists in code is one refactor
