@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "repo-truth": "dist/cli.js"
+  },
   "files": [
     "dist"
   ],
