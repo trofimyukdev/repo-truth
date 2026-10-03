@@ -43,6 +43,12 @@ outcome: >
   registry. The not_done_if lines are unchanged, and the factory takes the
   task from the start again.
 
+  REISSUED A FOURTH TIME on 2026-10-03 by the operator's word. The third
+  version's last candidate was refused because its holdout item had gone
+  stale, not because of the candidate; the holdout item was repaired outside
+  the repository. The acceptance, the not_done_if lines and the holdout item
+  below are unchanged, and the factory takes the task from the start again.
+
 measure:
   - npx vitest run test/unit/cli.test.ts
 
