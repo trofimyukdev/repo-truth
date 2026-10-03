@@ -2,7 +2,8 @@
 
 Repository truth: the gates an autonomous coding factory runs before it merges, in
 portable form - checks over a commit range that any repository can adopt. Today they
-are a TypeScript library; the `repo-truth` command and a GitHub Action are next.
+are a TypeScript library and one command that runs them, `repo-truth check`; a GitHub
+Action around that command is next.
 
 **And: the showcase. This repository is developed BY the factory.** Its tasks are
 not issues; they are TaskSpecs in `factory/tasks/`, and the factory picks them up,
@@ -12,11 +13,14 @@ for what the factory is and how it decides.
 
 ## Status
 
-**Ten checks are implemented. There is no command that runs them yet.** The count is
-`git grep -l '^export async function check' 8338b5a -- src | wc -l`, which printed
-`10` on 2026-10-03 at `8338b5a`, the `main` this README describes. Each check is one
-module in `src/` with its tests in `test/unit/`, and each answers as a `CheckRecord`
-(`name`, `status`, `evidence`) that a gate consumes without parsing prose.
+**Ten checks are implemented, and one command runs them: `repo-truth check`.** The
+count is `git grep -l '^export async function check' fcf6d3b -- src | wc -l`, which
+printed `10` on 2026-10-03 at `fcf6d3b`, the merge that added the command. Each check
+is one module in `src/` with its tests in `test/unit/`, and each answers as a
+`CheckRecord` (`name`, `status`, `evidence`) that a gate consumes without parsing
+prose. The command runs what the registry in `src/registry.ts` holds, the same ten:
+`git grep -c '^  entry("RT-' fcf6d3b -- src/registry.ts` printed
+`fcf6d3b:src/registry.ts:10` on 2026-10-03.
 
 ## What it checks
 
@@ -53,24 +57,82 @@ revision or a failed git call is a `fail` record, never a `pass`. By record name
 Every check has a stated failure mode it must not have; those are the
 `not_done_if` lists in the task files, and they are the part worth reading.
 
-## How to run a check today
+## How to run it
 
-There is no `repo-truth` command yet: `npm pkg get bin` prints `{}`. Each check is an
-async function exported from its module in `dist/`; it takes `{ cwd, base, candidate }`
-and resolves to a `CheckRecord`. In a clone of this repository:
+`repo-truth check --base <rev> --candidate <rev>` runs every check in the registry
+over `base..candidate` and answers with one record per check. It is not published
+to npm, and the name there belongs to another project: on 2026-10-03,
+`npm view repo-truth repository.url` named a different repository, so
+`npx repo-truth` would fetch and run that one. `package.json` maps the `repo-truth`
+command to `dist/cli.js` in its `bin` field (`npm pkg get bin`), and the build
+produces that file. In a clone of this repository, over the range of the merge
+that brought the command in:
 
 ```sh
 npm ci && npm run build
-node --input-type=module -e '
-  import { checkCommitRange } from "./dist/commit-range.js";
-  const record = await checkCommitRange({ cwd: ".", base: "9eb3692", candidate: "8338b5a" });
-  console.log(JSON.stringify(record, null, 2));
-'
-# On 2026-10-03, over the range of the factory's merges, this printed a "pass" record:
-# "18 commit(s) in 9eb3692..8338b5a are printable ASCII/tab, identities included"
+node dist/cli.js check --base a355722 --candidate fcf6d3b; echo "exit $?"
 ```
 
-`cwd` is the repository to read; `base` and `candidate` are revisions it holds.
+On 2026-10-03 the second line printed this - nine checks pass, and `RT-03` fails on
+the merge itself, for the trailer mismatch under "What is not done yet":
+
+```text
+PASS RT-01
+     2 commit(s) in a3557227ad2fd423522417c145d3c945a9cb6b61..fcf6d3b1aef0efd74198144c318dad2204a7c8e5 are printable ASCII/tab, identities included
+PASS RT-02
+     no unmeasured figure in the commit bodies or added documentation lines of a3557227ad2fd423522417c145d3c945a9cb6b61..fcf6d3b1aef0efd74198144c318dad2204a7c8e5
+FAIL RT-03
+     fcf6d3b1aef0 merge: RT-07 - One entry point - `repo-truth check` runs the checks and answers with records: no Task-Id trailer
+PASS RT-04
+     no move in "a3557227ad2fd423522417c145d3c945a9cb6b61".."fcf6d3b1aef0efd74198144c318dad2204a7c8e5" lowers what the suite asserts
+PASS RT-05
+     3 path(s) added in "a3557227ad2fd423522417c145d3c945a9cb6b61".."fcf6d3b1aef0efd74198144c318dad2204a7c8e5" match no stray shape and no ignore rule
+PASS RT-06
+     neither the dependency fields of package.json nor package-lock.json changed
+PASS RT-09
+     617 added line(s) in "a3557227ad2fd423522417c145d3c945a9cb6b61"..."fcf6d3b1aef0efd74198144c318dad2204a7c8e5" hold no conflict marker
+PASS RT-10
+     3 name(s) introduced in "a3557227ad2fd423522417c145d3c945a9cb6b61".."fcf6d3b1aef0efd74198144c318dad2204a7c8e5" are portable
+PASS RT-11
+     0 link(s) added or changed in "a3557227ad2fd423522417c145d3c945a9cb6b61".."fcf6d3b1aef0efd74198144c318dad2204a7c8e5" stay inside the repository
+PASS RT-12
+repo-truth: at least one check failed
+exit 1
+```
+
+The exit code is the contract, and the header of `src/cli.ts` is the one place it
+is stated; this prints it:
+`git show fcf6d3b:src/cli.ts | sed -n '/EXIT CODES/,/no check has run/p'`
+
+```text
+ * EXIT CODES - the one place they are stated:
+ *   0  every check that ran passed or skipped
+ *   1  at least one check failed
+ *   2  bad invocation or unrunnable environment (unknown option, unknown check,
+ *      a revision that names no commit, a failed fetch). Never a check's finding.
+ *
+ * On exit 2 nothing is written to stdout and no check has run.
+```
+
+A revision that names no commit, on 2026-10-03:
+
+```sh
+node dist/cli.js check --base no-such-rev --candidate fcf6d3b; echo "exit $?"
+```
+
+```text
+repo-truth: --base "no-such-rev" does not name a commit in this repository
+usage: repo-truth check --base <rev> --candidate <rev> [--check <name>]... [--format text|json] [--no-fetch]
+exit 2
+```
+
+`--check <name>`, which may be repeated, runs only the named checks. `--format json`
+prints one JSON document instead of the text: `"schema": "repo-truth.check/v1"`, the
+resolved `base` and `candidate`, `ok`, `exitCode` and the `records`. `--no-fetch`
+skips the `git fetch --all --quiet` the command runs before it resolves either
+revision.
+Each check is also an async function exported from its module in `dist/`: it takes
+`{ cwd, base, candidate }` and resolves to a `CheckRecord`.
 
 ## How these checks were built
 
@@ -95,6 +157,12 @@ mode, which merges nothing, and it was put on `main` by hand as a plain commit:
 `git log -1 --format='%h parents: %p trailers: [%(trailers)]' 1049432` printed
 `1049432 parents: 181be30 trailers: []` on 2026-10-03.
 
+The command that runs them, `RT-07`, was the gate's tenth merge, on 2026-10-03:
+`git log --merges --oneline fcf6d3b | wc -l` printed `10`, and
+`git diff --name-status fcf6d3b^1 fcf6d3b` lists `package.json` modified, for its
+new `bin` field, beside three added files: `src/cli.ts`, `src/registry.ts` and
+`test/unit/cli.test.ts`.
+
 ## How the factory drives this repository
 
 `factory/` is the consumer half of the contract. The controller lives elsewhere;
@@ -117,23 +185,22 @@ a candidate and a verdict for a human to read. The operator switched shadow off 
 2026-10-02 in `9eb3692`, whose message calls the mode supervised auto-merge
 (`git log -1 --format=%b 9eb3692`); since then a candidate that passes the gate is
 merged. The ladder in `factory/checks.yaml` is typecheck, unit tests and build;
-this repository does not run its own checks on itself until `repo-truth check` exists.
+`repo-truth check` exists now, and the ladder does not run it yet:
+`git grep -n -E '^  [a-z_]+:$' fcf6d3b -- factory/checks.yaml` lists those three
+rungs and no other.
 
 Every spec the gate merged declares a holdout acceptance item - a command the gate
 runs and the builder is never shown: `git grep -c 'holdout: true' 8338b5a -- factory/tasks`.
 
 ## What is not done yet
 
-- `RT-07`: `repo-truth check --base <rev> --candidate <rev>` runs every registered
-  check, prints records for a human and JSON for a machine, and exits on a stated
-  code that tells a failed check from a failed invocation. It is not on `main` yet.
-- `RT-08`: a GitHub Action around that command, which takes a pull request's range
-  from the merge base, not the target's tip, and fails loudly when a shallow checkout
-  lacks that merge base.
+- `RT-08`: a GitHub Action around `repo-truth check`, which takes a pull request's
+  range from the merge base, not the target's tip, and fails loudly when a shallow
+  checkout lacks that merge base.
 - `RT-03` reads `Task-Id` while the factory's merges carry `Millwright-Task-ID`, so
-  `RT-03` over any of them answers `fail` today:
-  `git log --merges --format='%h [%(trailers:key=Task-Id,valueonly)]' 8338b5a`
-  printed an empty `[]` for each on 2026-10-03.
+  `RT-03` over any of them answers `fail` today, as the run above shows for the
+  tenth: `git log --merges --format='%h [%(trailers:key=Task-Id,valueonly)]' fcf6d3b`
+  printed an empty `[]` for each of the ten on 2026-10-03.
 - `selfCheck()` in `src/index.ts` predates the checks and still says none is implemented.
 
 ## Local development
