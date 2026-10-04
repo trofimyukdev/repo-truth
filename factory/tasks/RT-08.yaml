@@ -14,6 +14,19 @@ outcome: >
   clean result on the wrong range, which is worse than reporting nothing, and it
   does so silently on exactly the repositories most likely to adopt it.
 
+  REISSUED on 2026-10-04 by the operator's word, under his rule of 2026-09-30
+  that every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names. The
+  first version, never built, declared neither. This version adds one holdout
+  item, which the gate runs and the builder is never shown, and states in the
+  acceptance below the interface it measures: one new option of RT-07's
+  command, `--target`, and what it answers - the merge base, the failure for
+  missing history, the rule for an event that is not a pull request - and
+  where the action file lives. The action file moves out of `.github/`: the
+  factory refuses every change under that directory to an ordinary task, so
+  the first version could not have been built as written. The not_done_if
+  lines are unchanged.
+
 measure:
   - npx vitest run test/unit/action.test.ts
 
@@ -37,21 +50,63 @@ acceptance:
       base in each.
   - type: behavior
     statement: >
+      The resolution is reached through RT-07's command, which gains one option:
+      `repo-truth check --target <rev> --candidate <rev>`. `--target` names the
+      branch the pull request merges into and is given in place of `--base`;
+      giving both, or neither, is a bad invocation. It is resolved as `--base`
+      is - after the fetch unless `--no-fetch` is given, and a `--target` that
+      names no commit is a bad invocation - and the base of the range is then
+      the merge base of the target and the candidate, the commit that
+      `git merge-base <target> <candidate>` prints, never the target's tip. The
+      JSON document's `base` is that merge base. Everything else RT-07 states
+      is kept as it is: the exit codes, the JSON document, `REGISTRY`, and the
+      options `--check`, `--format` and `--no-fetch`.
+  - type: behavior
+    statement: >
       A checkout that does not contain the merge base produces a failure naming
       the missing history and the fetch depth needed, never a pass. A test drives
-      a shallow fixture and asserts the message says what to change.
+      a shallow fixture and asserts the message says what to change. Through
+      `--target` that failure is the bad-invocation code 2 with nothing on
+      stdout and no check run, and stderr says that the merge base is missing
+      and that the checkout needs `fetch-depth: 0`, the actions/checkout input.
   - type: behavior
     statement: >
       The wrapper's own outcome distinguishes a check failure from a wrapper
       failure using the exit codes RT-07 states, asserted by a test rather than
-      by reading the workflow file.
+      by reading the workflow file. Through `--target`, a check that fails or
+      throws exits 1 with the JSON document, and a range that cannot be
+      resolved exits 2 with nothing on stdout.
+  - type: behavior
+    statement: >
+      This task states no range rule for push events, and the wrapper does not
+      claim them. When the environment variable `GITHUB_EVENT_NAME` is set to an
+      event other than `pull_request` or `pull_request_target`, `--target` is a
+      bad invocation: exit 2, nothing on stdout, no check run, and stderr names
+      the event. Without that variable, as in a local run, `--target` works as
+      stated above. `--base` never reads it, so a workflow run by a push event
+      names its range with RT-07's own `--base`.
+  - type: behavior
+    statement: >
+      The wrapper is `action.yml` at the repository root - the file a workflow's
+      `uses: <owner>/repo-truth@<ref>` line resolves - a composite action
+      (`runs.using: composite`) whose step runs the built `repo-truth check`
+      with `--target` set to the pull request's target branch as the checkout's
+      remote-tracking ref and `--candidate` set to the pull request's head
+      commit, and exits with the command's own code. It holds no range logic of
+      its own. Nothing under `.github/` belongs to this task: the factory
+      refuses a change there to every ordinary task.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-08.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
 
 allowed_paths:
   - src/**
   - test/unit/**
-  - .github/**
+  - action.yml
 forbidden_paths:
   - factory/**
+  - .github/**
   - README.md
   - LICENSE
 
