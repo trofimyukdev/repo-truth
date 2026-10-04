@@ -1,0 +1,121 @@
+id: RT-13
+repo: repo-truth
+priority: 73
+milestone: M0
+title: Four residuals - RT-03 reads the factory's merge trailer, and three evidence lines say what is true
+
+outcome: >
+  Four small defects in what the merged checks say, gathered into one task
+  because each is a few lines and none is worth a pass of its own. RT-03 reads
+  only `Task-Id`, while every merge the factory makes names its task in a
+  `Millwright-Task-ID` trailer, so `repo-truth check` over any of this
+  repository's own merges answers `fail` for RT-03 - a check that is wrong
+  about the history it lives in is a check nobody believes. `selfCheck()`
+  still says that no repository check is implemented, though the registry
+  holds ten. RT-10's pass reads `0 name(s) introduced ... are portable`,
+  which a reader takes for "none of the names is portable". RT-12 passes with
+  an empty evidence list, so its record cannot say what it measured. Each fix
+  is to the rule or the words of one function: no check is added, and no
+  verdict changes except RT-03's over a landing that names its task in the
+  factory's key.
+
+  Written on 2026-10-04 by the operator's word, beside RT-08's reissue, under
+  his rule of 2026-09-30 that every not_done_if line of a spec in this
+  repository is covered by a holdout acceptance item or by a deterministic
+  check the spec names: the holdout item below is the gate's, and the builder
+  is never shown it.
+
+measure:
+  - npx vitest run test/unit/trailers.test.ts test/unit/index.test.ts test/unit/portable-paths.test.ts test/unit/large-blobs.test.ts
+
+not_done_if:
+  - "`repo-truth check` answers `fail` for RT-03 over a merge the factory made, because the merge names its task in a `Millwright-Task-ID` trailer and RT-03 reads only `Task-Id`"
+  - "the factory's key is accepted outside RT-03's own rules - anywhere in the message rather than in the trailer block, on a commit other than the landing, or with a value that does not parse as a task id - so the fix opens the hole RT-03 exists to close"
+  - "`selfCheck()` still says that no repository check is implemented, or names a number of checks that is not the number the registry holds when it is called"
+  - "RT-10's pass over a range that introduces no name still reads as a count of portable names - `0 name(s) introduced ... are portable` - instead of saying that nothing was introduced"
+  - "RT-12 passes with an empty evidence list, so its record cannot say what it measured or against which limit"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/trailers.test.ts test/unit/index.test.ts test/unit/portable-paths.test.ts test/unit/large-blobs.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `checkTrailers` (src/trailers.ts) accepts a second key for the task a
+      landing closes: `Millwright-Task-ID`, the key the factory writes on the
+      merges it makes, exported as `FACTORY_TRAILER_KEY`. A landing whose
+      trailer block carries either key with a value of the shape
+      `TASK_ID_PATTERN` states is a `pass`. Every other rule RT-03 states holds
+      for both keys unchanged: a key counts only in the trailer block, as git
+      parses it; only the landing counts, never another commit of the range; a
+      value that does not parse is a `fail` naming the value and the words
+      `does not parse`; a landing with neither key is a `fail` with the words
+      `no Task-Id trailer`.
+  - type: behavior
+    statement: >
+      A test builds a merge in the factory's shape - a merge commit whose
+      trailer block holds `Millwright-Task-ID`, `Millwright-Attempt-ID` and
+      `Millwright-Spec-Hash`, merging a commit that carries `Task-Id` - and
+      asserts that `repo-truth check --check RT-03` over the range that ends at
+      the merge exits 0 with RT-03 a `pass`.
+  - type: behavior
+    statement: >
+      `selfCheck()` (src/index.ts) stays a `pass` named `self` with one evidence
+      line, which names as a number how many entries `REGISTRY`
+      (src/registry.ts) holds at the moment it is called, and the word
+      `registered`, as in `repo-truth is installed; <n> checks registered`. It
+      no longer says that no repository check is implemented. The test that
+      pinned the old sentence is rewritten to pin the new line: one test
+      declaration replaced by one, never removed.
+  - type: behavior
+    statement: >
+      RT-10's `pass` evidence is one line. When the range introduces no name it
+      opens with `no name introduced`; when it introduces names and every one
+      is portable it opens with their number, as in `<n> name(s) introduced`, and
+      holds the words `all portable`. Its `fail` evidence is unchanged.
+  - type: behavior
+    statement: >
+      RT-12's `pass` evidence is one line holding the number of blobs the range
+      adds to the history - distinct objects, as the check already finds them,
+      0 when there is none - the limit in bytes and the words `none over`, as
+      in `<n> blob(s) added in "<base>".."<candidate>", none over <limit> bytes`.
+      Its `fail` evidence is unchanged.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-13.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/trailers.ts
+  - src/index.ts
+  - src/portable-paths.ts
+  - src/large-blobs.ts
+  - test/unit/trailers.test.ts
+  - test/unit/index.test.ts
+  - test/unit/portable-paths.test.ts
+  - test/unit/large-blobs.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:git, repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
