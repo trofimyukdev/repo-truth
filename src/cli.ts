@@ -16,6 +16,7 @@ import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { assertPullRequestEvent, RangeResolutionError, resolveMergeBase } from "./action.js";
 import { allPassed, type CheckRecord } from "./index.js";
 import { REGISTRY, type RegistryEntry } from "./registry.js";
 
@@ -29,15 +30,18 @@ export interface CliIo {
   readonly cwd?: string;
   readonly stdout?: (text: string) => void;
   readonly stderr?: (text: string) => void;
+  /** Where `GITHUB_EVENT_NAME` is read from; defaults to `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 const USAGE =
-  "usage: repo-truth check --base <rev> --candidate <rev> [--check <name>]... [--format text|json] [--no-fetch]";
+  "usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--format text|json] [--no-fetch]";
 
 class InvocationError extends Error {}
 
 interface Parsed {
   base: string;
+  target: string | undefined;
   candidate: string;
   checks: string[];
   format: "text" | "json";
@@ -47,7 +51,7 @@ interface Parsed {
 
 function parseArgs(argv: readonly string[]): Parsed {
   const [command, ...rest] = argv;
-  const parsed: Parsed = { base: "", candidate: "", checks: [], format: "text", fetch: true, help: false };
+  const parsed: Parsed = { base: "", target: undefined, candidate: "", checks: [], format: "text", fetch: true, help: false };
   if (command === "--help" || command === "-h") {
     parsed.help = true;
     return parsed;
@@ -56,6 +60,7 @@ function parseArgs(argv: readonly string[]): Parsed {
     throw new InvocationError(command === undefined ? "no command given" : `unknown command: ${command}`);
   }
   let base: string | undefined;
+  let target: string | undefined;
   let candidate: string | undefined;
   for (let i = 0; i < rest.length; i++) {
     let arg = rest[i] as string;
@@ -75,6 +80,9 @@ function parseArgs(argv: readonly string[]): Parsed {
     switch (name) {
       case "--base":
         base = value();
+        break;
+      case "--target":
+        target = value();
         break;
       case "--candidate":
         candidate = value();
@@ -102,9 +110,13 @@ function parseArgs(argv: readonly string[]): Parsed {
     }
   }
   if (parsed.help) return parsed;
-  if (base === undefined) throw new InvocationError("--base is required");
+  if (base !== undefined && target !== undefined) {
+    throw new InvocationError("--base and --target are exclusive: give one");
+  }
+  if (base === undefined && target === undefined) throw new InvocationError("--base or --target is required");
   if (candidate === undefined) throw new InvocationError("--candidate is required");
-  parsed.base = base;
+  parsed.base = base ?? "";
+  parsed.target = target;
   parsed.candidate = candidate;
   return parsed;
 }
@@ -184,6 +196,8 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
     }
     const selected = parsed.checks.length === 0 ? registry : registry.filter((e) => parsed.checks.includes(e.name));
 
+    if (parsed.target !== undefined) assertPullRequestEvent((io.env ?? process.env).GITHUB_EVENT_NAME);
+
     try {
       await git(cwd, ["rev-parse", "--git-dir"]);
     } catch {
@@ -196,8 +210,16 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
         throw new InvocationError(`could not fetch: ${(error as Error).message}`);
       }
     }
-    const base = await resolveCommit(cwd, "--base", parsed.base);
-    const candidate = await resolveCommit(cwd, "--candidate", parsed.candidate);
+    let base: string;
+    let candidate: string;
+    if (parsed.target !== undefined) {
+      const target = await resolveCommit(cwd, "--target", parsed.target);
+      candidate = await resolveCommit(cwd, "--candidate", parsed.candidate);
+      base = await resolveMergeBase(cwd, target, candidate);
+    } else {
+      base = await resolveCommit(cwd, "--base", parsed.base);
+      candidate = await resolveCommit(cwd, "--candidate", parsed.candidate);
+    }
 
     const records: CheckRecord[] = [];
     for (const e of selected) records.push(await runOne(e, cwd, { base, candidate }));
@@ -221,7 +243,7 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     err(`repo-truth: ${message}\n`);
-    if (error instanceof InvocationError) err(USAGE + "\n");
+    if (error instanceof InvocationError || error instanceof RangeResolutionError) err(USAGE + "\n");
     return EXIT_BAD_INVOCATION;
   }
 }

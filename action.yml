@@ -1,0 +1,17 @@
+name: repo-truth
+description: Run the repo-truth checks over the range a pull request actually is (merge base..head). Needs actions/checkout with fetch-depth 0.
+runs:
+  using: composite
+  steps:
+    - name: Build repo-truth
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci && npm run build
+    - name: Check the pull request range
+      shell: bash
+      env:
+        REPO_TRUTH_TARGET: origin/${{ github.event.pull_request.base.ref }}
+        REPO_TRUTH_CANDIDATE: ${{ github.event.pull_request.head.sha }}
+        REPO_TRUTH_BIN: ${{ github.action_path }}/dist/cli.js
+      run: |
+        exec node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"
