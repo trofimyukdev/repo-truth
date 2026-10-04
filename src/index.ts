@@ -10,6 +10,8 @@
  * The checks themselves arrive one task at a time - see `factory/tasks/`.
  */
 
+import { REGISTRY } from "./registry.js";
+
 /** What a check concluded. */
 export type CheckStatus = "pass" | "fail" | "skip";
 
@@ -42,7 +44,7 @@ export function selfCheck(): CheckRecord {
   return {
     name: "self",
     status: "pass",
-    evidence: ["repo-truth is installed; no repository check is implemented yet"],
+    evidence: [`repo-truth is installed; ${REGISTRY.length} checks registered`],
   };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { allPassed, selfCheck, type CheckRecord } from "../../src/index.js";
+import { REGISTRY } from "../../src/registry.js";
 
 describe("selfCheck", () => {
   it("answers with a record, not a boolean or an exit code", () => {
@@ -10,10 +11,8 @@ describe("selfCheck", () => {
     expect(Array.isArray(record.evidence)).toBe(true);
   });
 
-  it("says in its own evidence that no repository check is implemented", () => {
-    // The status is `pass` and the package is a skeleton; the evidence line is
-    // what keeps those two facts from contradicting each other for a reader.
-    expect(selfCheck().evidence.join(" ")).toMatch(/no repository check is implemented/);
+  it("names in one evidence line how many checks the registry holds", () => {
+    expect(selfCheck().evidence).toEqual([`repo-truth is installed; ${REGISTRY.length} checks registered`]);
   });
 });
 

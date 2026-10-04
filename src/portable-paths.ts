@@ -229,7 +229,11 @@ export async function checkPortablePaths(options: PortablePathsOptions): Promise
     return {
       name: NAME,
       status: "pass",
-      evidence: [`${introduced.size} name(s) introduced in ${quote(base)}..${quote(candidate)} are portable`],
+      evidence: [
+        introduced.size === 0
+          ? `no name introduced in ${quote(base)}..${quote(candidate)}`
+          : `${introduced.size} name(s) introduced in ${quote(base)}..${quote(candidate)}, all portable`,
+      ],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

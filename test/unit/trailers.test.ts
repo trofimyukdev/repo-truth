@@ -6,7 +6,8 @@ import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { TASK_ID_PATTERN, TASK_TRAILER_KEY, checkTrailers } from "../../src/trailers.js";
+import { main } from "../../src/cli.js";
+import { FACTORY_TRAILER_KEY, TASK_ID_PATTERN, TASK_TRAILER_KEY, checkTrailers } from "../../src/trailers.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,6 +120,53 @@ describe("checkTrailers", () => {
     const text = record.evidence.join("\n");
     expect(text).toContain("does not parse");
     expect(text).not.toContain("no Task-Id trailer");
+  });
+
+  it("exports the factory's key", () => {
+    expect(FACTORY_TRAILER_KEY).toBe("Millwright-Task-ID");
+  });
+
+  it("passes a landing that names its task in the factory's key", async () => {
+    await commit(repo, "feat: landing\n\nMillwright-Task-ID: RT-13");
+    expect((await run()).status).toBe("pass");
+  });
+
+  it("does not count the factory's key in prose, with a bad value, or off the landing", async () => {
+    await commit(repo, "wip\n\nMillwright-Task-ID: RT-13");
+    await commit(repo, "feat: landing\n\nCloses Millwright-Task-ID: RT-13 as said.\n\nMore.");
+    const prose = await run();
+    expect(prose.status).toBe("fail");
+    expect(prose.evidence.join("\n")).toContain("no Task-Id trailer");
+
+    await commit(repo, "feat: bad\n\nMillwright-Task-ID: nonsense");
+    const bad = await run();
+    expect(bad.status).toBe("fail");
+    expect(bad.evidence.join("\n")).toContain("nonsense");
+    expect(bad.evidence.join("\n")).toContain("does not parse");
+  });
+
+  it("passes the factory's merge shape through the command", async () => {
+    await git(repo, ["checkout", "--quiet", "-b", "work"]);
+    await commit(repo, "feat: work\n\nTask-Id: RT-13");
+    await git(repo, ["checkout", "--quiet", "main"]);
+    await git(repo, [
+      "merge",
+      "--no-ff",
+      "--quiet",
+      "-m",
+      "merge: RT-13\n\nMillwright-Task-ID: RT-13\nMillwright-Attempt-ID: RT-13-A1\nMillwright-Spec-Hash: abc123",
+      "work",
+    ]);
+    let stdout = "";
+    const code = await main(["check", "--base", base, "--candidate", "HEAD", "--check", "RT-03", "--no-fetch"], {
+      cwd: repo,
+      stdout: (text) => {
+        stdout += text;
+      },
+      stderr: () => undefined,
+    });
+    expect(code).toBe(0);
+    expect(stdout).toContain("RT-03");
   });
 
   it("fails closed on an unknown candidate", async () => {
