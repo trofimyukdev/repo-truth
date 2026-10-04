@@ -126,28 +126,35 @@ interface Finding {
   readonly inTree: boolean;
 }
 
-async function findLargeBlobs(cwd: string, base: string, candidate: string, max: number): Promise<Finding[]> {
+async function findLargeBlobs(
+  cwd: string,
+  base: string,
+  candidate: string,
+  max: number,
+): Promise<{ findings: Finding[]; added: number }> {
   const added = parseObjects(await runGit(cwd, ["rev-list", "--objects", candidate, `^${base}`, "--"]));
   // Reachability from the base is by history, not by the base's tip alone.
   const held = parseObjects(await runGit(cwd, ["rev-list", "--objects", base, "--"]));
   const fresh = [...added.keys()].filter((oid) => !held.has(oid));
-  if (fresh.length === 0) return [];
+  if (fresh.length === 0) return { findings: [], added: 0 };
 
   const sizes = decode(
     await runGit(cwd, ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"], `${fresh.join("\n")}\n`),
   );
   const large = new Map<string, number>();
+  let addedBlobs = 0;
   for (const line of sizes.split("\n")) {
     if (line.length === 0) continue;
     const parts = line.split(" ");
     if (parts.length !== 3 || parts[1] === "missing") {
       throw new Error(`git cat-file could not measure an object: ${quote(line)}`);
     }
+    if (parts[1] === "blob") addedBlobs += 1;
     if (parts[1] === "blob" && Number(parts[2]) > max) {
       large.set(parts[0] as string, Number(parts[2]));
     }
   }
-  if (large.size === 0) return [];
+  if (large.size === 0) return { findings: [], added: addedBlobs };
 
   const tree = decode(await runGit(cwd, ["ls-tree", "-r", "--format=%(objectname)", candidate, "--"]));
   const inTree = new Set(tree.split("\n").filter((line) => line.length > 0));
@@ -157,7 +164,7 @@ async function findLargeBlobs(cwd: string, base: string, candidate: string, max:
     findings.push({ path: added.get(oid) ?? oid, size, inTree: inTree.has(oid) });
   }
   findings.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return findings;
+  return { findings, added: addedBlobs };
 }
 
 function failure(cause: string): CheckRecord {
@@ -173,9 +180,15 @@ export async function checkLargeBlobs(options: LargeBlobsOptions): Promise<Check
     }
     const base = await resolveCommit(options.cwd, options.base);
     const candidate = await resolveCommit(options.cwd, options.candidate);
-    const findings = await findLargeBlobs(options.cwd, base, candidate, max);
+    const { findings, added } = await findLargeBlobs(options.cwd, base, candidate, max);
     if (findings.length === 0) {
-      return { name: NAME, status: "pass", evidence: [] };
+      return {
+        name: NAME,
+        status: "pass",
+        evidence: [
+          `${added} blob(s) added in ${quote(options.base)}..${quote(options.candidate)}, none over ${max} bytes`,
+        ],
+      };
     }
     return {
       name: NAME,

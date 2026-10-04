@@ -20,6 +20,9 @@ import type { CheckRecord } from "./index.js";
 /** The trailer key that names the task a landing closes. */
 export const TASK_TRAILER_KEY = "Task-Id";
 
+/** The trailer key the factory writes on the merges it makes. */
+export const FACTORY_TRAILER_KEY = "Millwright-Task-ID";
+
 /** The shape of a task id: a letter, letters or digits, a hyphen, digits. */
 export const TASK_ID_PATTERN = /^[A-Za-z][A-Za-z0-9]*-[0-9]+$/;
 
@@ -80,7 +83,7 @@ async function readTaskIds(cwd: string, sha: string): Promise<string[]> {
   const out = await runGit(cwd, [
     "log",
     "-1",
-    "--format=%(trailers:key=" + TASK_TRAILER_KEY + ",unfold,separator=%x00)",
+    "--format=%(trailers:key=" + TASK_TRAILER_KEY + ",key=" + FACTORY_TRAILER_KEY + ",unfold,separator=%x00)",
     sha,
     "--",
   ]);
