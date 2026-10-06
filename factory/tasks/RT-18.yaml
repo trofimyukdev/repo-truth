@@ -1,0 +1,147 @@
+id: RT-18
+repo: repo-truth
+priority: 68
+milestone: M0
+title: Dependency sources - a dependency the range adds or changes that does not come from the registry
+
+outcome: >
+  A dependency names where it comes from as well as which version: a range,
+  a tag, an alias, a git repository, a tarball URL or a path on the disk of
+  whoever installs it. RT-06 tells a manifest edited alone from a lockfile
+  edited alone; a dependency taken from a stranger's git repository and added
+  to both passes it, and so does a lockfile entry whose resolved URL points
+  at another host - the two shapes a substituted dependency takes when it
+  arrives through an agent's diff. This check reads what the range adds or
+  changes in the manifest's dependency fields, its overrides and its
+  resolutions, and the resolved URLs on the lines the range adds to the
+  lockfile, and reports every dependency that does not come from a registry,
+  each with the rule it breaks. A dependency the base already had, and an
+  ordinary version range, say nothing.
+
+  Written on 2026-10-06 by the operator's word of that day, with RT-14 to
+  RT-17 and RT-19, under his rule of 2026-09-30 that every not_done_if line
+  of a spec in this repository is covered by a holdout acceptance item or by
+  a deterministic check the spec names: the holdout item below is the
+  gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/dependency-sources.test.ts
+
+not_done_if:
+  - "a dependency the base already holds is reported because the range changed something beside it, so a repository with one git dependency fails every range after it"
+  - "a dependency taken from a git repository, a tarball URL or a path is accepted because its specifier is only compared with the base's and never classified"
+  - "`overrides` or `resolutions` are not read, so a transitive dependency redirected there passes"
+  - "a lockfile entry the range adds that resolves from a host outside the registry list passes because the lockfile is not read, or the whole lockfile is parsed to compare resolved trees instead of reading the lines the range adds"
+  - "an ordinary version range, a dist-tag, a workspace reference or an alias of the same name is reported, so the check fires on every dependency bump and gets switched off"
+  - "a finding does not name the file, the field, the dependency, its specifier or host, and the rule it breaks"
+  - "a manifest that does not parse, a revision that names no commit, or a git invocation that fails is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is missing from `REGISTRY`, so `repo-truth check` never runs it and `--check RT-18` is refused as an unknown check"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/dependency-sources.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/dependency-sources.ts` exports `checkDependencySources(options)`,
+      where `options` is `{ cwd, base, candidate, registries? }`, and
+      `DEFAULT_REGISTRIES`, the hosts a lockfile may resolve from when
+      `registries` is absent: `registry.npmjs.org` and `registry.yarnpkg.com`;
+      a `registries` the caller gives replaces that list. The check resolves to
+      a `CheckRecord` (src/index.ts) named `RT-18`. It reads the root
+      `package.json` at the merge base of `base` and `candidate` and at
+      `candidate`, and the lines the range adds to the root `package-lock.json`,
+      `npm-shrinkwrap.json` and `yarn.lock`, through git with an argument
+      vector and never from the working tree.
+  - type: behavior
+    statement: >
+      The manifest fields read are those of `DEPENDENCY_FIELDS`
+      (src/lockfile-drift.ts, imported rather than restated) whose value is a
+      mapping, and `overrides` and `resolutions`, including the mappings
+      nested in them. A dependency is judged when the range adds it or
+      changes its specifier; one whose specifier the base already held is
+      never judged. The rules, each named in its finding by the word in
+      brackets: [git] a specifier that names a git repository - one that
+      begins with `git+`, `git:`, `github:`, `gitlab:`, `bitbucket:` or
+      `gist:`, or has the form `<owner>/<repo>` with an optional `#<ref>`;
+      [url] one that begins with `http:` or `https:`; [path] one that begins
+      with `file:`, `link:` or `portal:`, or with `./`, `../`, `/` or `~/`;
+      [alias] an `npm:` specifier that names a package other than the
+      dependency itself. A version range, a dist-tag such as `latest`, a
+      `workspace:` specifier and an `npm:` alias of the same name are not
+      findings.
+  - type: behavior
+    statement: >
+      [registry] A line the range adds to `package-lock.json` or
+      `npm-shrinkwrap.json` that holds a `"resolved"` URL, or to `yarn.lock`
+      that holds a `resolved` URL, whose host is not in the registries list.
+      The lockfile is read line by line as the range adds it and never parsed
+      whole.
+  - type: behavior
+    statement: >
+      Each finding is one evidence line that names the file - `package.json`
+      or the lockfile - and, for the manifest, the field, the dependency's
+      name and its specifier, or, for a lockfile, the line in the candidate
+      and the host, and then the rule's word in brackets, with every character
+      outside printable ASCII escaped. The record fails when there is a
+      finding, and then its evidence holds the finding lines and nothing
+      else; it passes when there is none, with one evidence line holding
+      `no dependency from outside the registry`. A repository with no
+      `package.json` at either revision and no lockfile line added yields a
+      `skip` record whose evidence names `package.json`.
+  - type: behavior
+    statement: >
+      The check fails closed: a manifest that does not parse at either
+      revision yields a `fail` record naming the file and the revision, a
+      revision that names no commit yields a `fail` record whose evidence
+      names that revision, and any other git invocation that fails yields one
+      whose evidence names the cause - never a `pass`, and never a thrown
+      error.
+  - type: behavior
+    statement: >
+      `REGISTRY` (src/registry.ts) gains one entry, `RT-18`, running
+      `checkDependencySources`, so `repo-truth check --check RT-18` runs it
+      alone; that entry and its import are the only lines of src/registry.ts
+      the task changes. Tests build real throwaway repositories, each with
+      its own `package.json` and lockfile, and drive every rule and every
+      form that is not a finding, a base that already holds a git dependency
+      while the range bumps another, a git reference the range changes,
+      `overrides` and `resolutions`, each lockfile, a caller's `registries`,
+      a manifest that does not parse and a repository with none, and assert
+      the record of each. Fixture URLs use the `.invalid` top-level domain,
+      and nothing is installed or fetched. The repository's own package.json
+      and package-lock.json do not change.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-18.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/dependency-sources.ts
+  - src/registry.ts
+  - test/unit/dependency-sources.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:registry, repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

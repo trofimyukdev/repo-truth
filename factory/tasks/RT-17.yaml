@@ -1,0 +1,116 @@
+id: RT-17
+repo: repo-truth
+priority: 69
+milestone: M0
+title: An end-to-end suite over the built command - what a user runs, run the way a user runs it
+
+outcome: >
+  Every test in this repository imports a module and calls it in-process,
+  before the build. Nothing runs `repo-truth check` the way a user or the
+  Action does: the file `npm run build` produces, reached through the `bin`
+  field of package.json, as a process of its own over a real repository. A
+  defect that lives only there - a wrong `bin` path, an import the compiler
+  leaves unresolved, an exit code lost between `main` and the process -
+  passes every test there is. And the factory's post-merge smoke, which runs
+  only the format, lint and full_suite rungs on the merged commit, has had
+  nothing to run here: factory/checks.yaml declares none of them, and its own
+  comment says the full_suite rung arrives when a suite exists that the unit
+  rung does not cover. This task writes that suite. Declaring the rung that
+  runs it is the operator's own edit to factory/checks.yaml, after the task
+  merges.
+
+  Written on 2026-10-06 by the operator's word of that day, with RT-14 to
+  RT-16, RT-18 and RT-19, under his rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. No check is
+  added and no source file changes.
+
+measure:
+  - npm run build && node --test test/e2e/cli.e2e.mjs
+
+not_done_if:
+  - "the suite imports the modules in-process, as the unit tests do, instead of running as a child process the built file package.json's `bin` field names, so a broken build or a wrong `bin` path still passes it"
+  - "the suite is collected by the unit rung's `npx vitest run`, so it runs before the build and fails there, or it adds nothing the unit rung does not already run"
+  - "the suite needs a new dependency, a new `scripts` entry or any other change to package.json, which the gate refuses for `scripts` and an offline install cannot satisfy for a dependency"
+  - "a registered check's name is written into the suite, so the suite goes stale the day a check is added, or a check in `REGISTRY` can be missing from a default run without the suite failing"
+  - "the suite passes when the built file is absent, or when no case ran"
+  - "an exit code is asserted alone, without stdout being empty on a bad invocation and the JSON document agreeing with its own records"
+  - "the suite leaves files in the repository, or in the temporary directory after it ends"
+
+acceptance:
+  - type: command
+    command: npm run build && node --test test/e2e/cli.e2e.mjs
+    required: true
+  - type: behavior
+    statement: >
+      The suite is `test/e2e/cli.e2e.mjs`, an ES module run by node's own
+      test runner (`node --test`, with `node:test` and `node:assert`; nothing
+      installed) after `npm run build`. Its name matches none of the patterns
+      `npx vitest run` collects, so the unit rung does not run it, and nothing
+      else in the repository changes, package.json and package-lock.json
+      included.
+  - type: behavior
+    statement: >
+      Every case runs the file that package.json's `bin` field maps
+      `repo-truth` to, resolved from the repository root, as a child process -
+      `node <that file> check ...` - in throwaway git repositories the suite
+      builds, and reads its exit code, its stdout and its stderr. When that
+      file does not exist the suite fails, naming the build as the missing
+      step; it never skips.
+  - type: behavior
+    statement: >
+      The names of the registered checks are read from the built `REGISTRY`
+      (dist/registry.js), never written into the suite. A default run over a
+      range of the suite's own answers 0 or 1, never 2, with exactly one
+      record per registered name in the registry's order, and the JSON
+      document's `ok` and `exitCode` agree with its records. Each registered
+      name given to `--check` runs that check alone. A range whose commit
+      message holds a character outside printable ASCII exits 1 with at least
+      one `fail` record.
+  - type: behavior
+    statement: >
+      The exit codes as RT-07 states them, each asserted with its streams: 0
+      and 1 with one JSON document on stdout when `--format json` is given,
+      and 2 with nothing on stdout and the refused thing named on stderr for
+      a revision that names no commit, an unknown `--check` name and an
+      unknown option.
+  - type: behavior
+    statement: >
+      The suite writes its repositories under the operating system's
+      temporary directory (`os.tmpdir()`, so `TMPDIR` moves it) and removes
+      them when it ends, whether a case passed or failed; it writes nothing
+      inside the repository.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-17.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/e2e/**
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:e2e]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

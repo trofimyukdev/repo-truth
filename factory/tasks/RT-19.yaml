@@ -1,0 +1,178 @@
+id: RT-19
+repo: repo-truth
+priority: 67
+milestone: M0
+title: Replayed figures - a git command a page or a commit quotes, run again, prints what the claim says
+
+outcome: >
+  RT-02 asks that a figure carry the command that printed it and the date it
+  was taken; it never runs the command. A figure copied from an older page,
+  rounded, or simply wrong carries a command and a date as well as a true one
+  does, and reads exactly like a measurement until somebody runs it again.
+  This repository's own pages write their figures in one form - a git
+  command in a code span, the word printed, and the output in a code span -
+  and that form can be checked by a machine: run the command again on the
+  commits it names and compare. This check does that for the claims a range
+  adds, and only for commands it can run without a shell and without
+  writing anything: a fixed list of read-only git subcommands and options,
+  on commits named by their ids, so that the answer is the same on any
+  clone. A command outside that list is counted as not replayable and never
+  failed, because a page of shell examples is not a defect.
+
+  Written on 2026-10-06 by the operator's word of that day, with RT-14 to
+  RT-18, under his rule of 2026-09-30 that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names: the holdout item below is the gate's,
+  and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/replayed-figures.test.ts
+
+not_done_if:
+  - "the command is run through a shell, or a pipe other than a final `| wc -l`, a redirection, a command substitution or a second command in the span is honoured, so a line of documentation runs what it likes in the checkout"
+  - "options are refused by a list of dangerous ones rather than admitted by a list of safe ones, so an option that writes a file or starts a program - `--output`, `--open-files-in-pager`, `-O`, `--ext-diff`, `--textconv`, `-c`, `-C`, `--exec-path`, `--git-dir`, `--work-tree` - gets through"
+  - "a command that names a branch, a tag, `HEAD` or no revision at all is replayed, so its answer drifts with the checkout and a claim that was true fails"
+  - "a claim the check cannot replay fails the record, so every page with a shell example fails the check"
+  - "a replayed output that differs from the claim, or a claim naming a commit the repository does not hold, passes"
+  - "the whole document is read rather than the lines the range adds, so a stale figure nobody in the range wrote fails every range after it"
+  - "commit bodies are not read, or only commit bodies are, while the form appears in both"
+  - "a finding does not name where the claim is, the command, what the replay printed and what the claim says"
+  - "a replay that does not end holds the check, and the command with it, forever"
+  - "a revision that names no commit, or a git invocation other than a replay that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is missing from `REGISTRY`, so `repo-truth check` never runs it and `--check RT-19` is refused as an unknown check"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/replayed-figures.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/replayed-figures.ts` exports `checkReplayedFigures(options)`, where
+      `options` is `{ cwd, base, candidate, timeoutMs? }`, and which resolves
+      to a `CheckRecord` (src/index.ts) named `RT-19`. It reads, through git with
+      an argument vector and never from the working tree, the lines the range
+      - the merge base of `base` and `candidate` to `candidate` - adds to
+      files whose names end in `.md`, with the paragraphs that hold them, and
+      the body of every commit in `base..candidate`.
+  - type: behavior
+    statement: >
+      A claim is a code span whose text begins with `git ` and is followed,
+      later in the same block, by the word `printed`, one or more spaces, and
+      a second code span: the claimed output. The command of the claim is the
+      nearest such code span before that word. A block is one paragraph of a
+      document - the lines between two blank lines - or the whole body of one
+      commit. A document's claim is read when the line that holds its claimed
+      output is a line the range adds.
+  - type: behavior
+    statement: >
+      A claim is replayable when its command, split into words as a POSIX
+      shell splits them but with nothing expanded, is `git`, then one of the
+      subcommands `rev-list`, `log`, `grep` and `ls-tree`, then words each of
+      which is an option on that subcommand's list, a lone `--`, or an
+      argument that does not begin with a minus sign - optionally followed by
+      `|`, `wc` and `-l` as its last words. A word is made of parts written
+      together, each single-quoted, double-quoted when it holds no dollar
+      sign, backtick or backslash, or bare when it holds only letters, digits
+      and the characters `.-_/:=^@,%` - so `--format='%h %s'` is one word;
+      anything else outside quotes makes the claim not replayable, and so
+      does a word between `git` and the subcommand. The
+      option lists: `rev-list` takes `--count`, `--merges`, `--no-merges`,
+      `--first-parent` and `--reverse`; `log` takes `--oneline`, `--merges`,
+      `--no-merges`, `--first-parent`, `--reverse`, a minus sign followed by
+      digits, and the words that begin `--format=`, `--pretty=` or
+      `--date=`; `grep` takes `-c`, `-l`, `-n`, `-E`, `-F`, `-i`, `-w`, `-e`,
+      `--count` and `--files-with-matches`; `ls-tree` takes `-r`, `-d`, `-t`,
+      `--name-only` and `--full-tree`. No other option reaches git.
+  - type: behavior
+    statement: >
+      The revisions of a command are, for `rev-list` and `log`, its arguments
+      before a lone `--`; for `grep`, its arguments before a lone `--` other
+      than the pattern - the first argument when no `-e` was given, and the
+      word after each `-e`; for `ls-tree`, its first argument. A replayable
+      claim is replayed only when it names at least one revision and every
+      revision is a commit id of seven to forty hexadecimal digits, alone or
+      as `<id>..<id>` or `<id>...<id>`, each id optionally followed by a
+      caret and digits; a claim that names a branch, a tag, `HEAD` or no
+      revision is counted as not replayable.
+  - type: behavior
+    statement: >
+      A replayed claim runs `git --no-pager` followed by its words before
+      the pipe, as an argument vector with no shell, in `cwd`, bounded in
+      time by `timeoutMs` when the caller gives it and otherwise by a default
+      the module states, at most thirty seconds; a replay still running at
+      its bound is stopped. Its output
+      is what git wrote to stdout without its final newline, or, after
+      `| wc -l`, the number of newline characters git wrote, in decimal. The
+      claim is reproduced when that output equals the claimed output. A
+      different output, a commit id the repository does not hold, a non-zero
+      exit and a replay that ran out of time are findings.
+  - type: behavior
+    statement: >
+      Each finding is one evidence line that opens with `<path>:<line>:` for
+      a document - the line of the claimed output in the candidate - or with
+      the commit's id, at least its first seven characters, for a commit
+      body. It holds the command, the word `printed` and what the replay
+      printed - or the words `does not hold` and the commit id, the exit
+      code, or `timed out` - and the word `claims` and the claimed output,
+      with every character outside printable ASCII escaped and each output
+      cut to a length the module states. The record fails when there is a
+      finding; otherwise it passes with one evidence line holding the number
+      of claims reproduced with the word `reproduced`, and the number not
+      replayable with the words `not replayable`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and a git invocation
+      other than a replay that fails yields one whose evidence names the
+      cause - never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      `REGISTRY` (src/registry.ts) gains one entry, `RT-19`, running
+      `checkReplayedFigures`, so `repo-truth check --check RT-19` runs it
+      alone; that entry and its import are the only lines of src/registry.ts
+      the task changes. Tests build real throwaway repositories and drive a
+      claim reproduced by each subcommand and by `| wc -l`, a wrong figure, a
+      claim with no pinned revision, a commit the repository does not hold, a
+      claim in a commit body, a wrong claim the base already held, a replay
+      that cannot finish within the `timeoutMs` it is given - made slow by
+      the test, with a git first on PATH that sleeps before it runs, because
+      a bound of a millisecond races a fast git and that test then fails at
+      random - which is a finding holding `timed out`, and, for
+      each road out of the list - a second command, a command substitution,
+      a redirection, a pipe to another program, `--output`, `-O`, and `-c`
+      before the subcommand - a marker file the command would create if it
+      ran, asserted absent after the check, and assert the record of each.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-19.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/replayed-figures.ts
+  - src/registry.ts
+  - test/unit/replayed-figures.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:registry, repo-truth:git]
+exclusive_resources: []
+
+risk:
+  level: high
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 4.00
+  verify_usd: 2.50
+  wall_minutes: 45
+
+merge: { mode: auto }

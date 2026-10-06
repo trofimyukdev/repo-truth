@@ -1,0 +1,158 @@
+id: RT-14
+repo: repo-truth
+priority: 72
+milestone: M0
+title: Lowered thresholds - a coverage minimum the range moves down or removes
+
+outcome: >
+  The cheapest way to make a coverage gate pass is to ask less of it: the
+  minimum in the runner's configuration goes from eighty to seventy, or the
+  key goes away, in the same range as the code it was guarding, and every
+  check stays green. This check reads the lines the range changes in the
+  files where a repository states its coverage minimums, pairs each value
+  the range removes with the value it adds for the same setting, and reports
+  a minimum that went down or disappeared - with the file, the line, the
+  setting and both values - for a human to sanction or refuse. A raised
+  minimum, a new one or a line that only moved says nothing, because a check
+  that fires on ordinary edits is a check that gets switched off.
+
+  Written on 2026-10-06 by the operator's word of that day, with RT-15 to
+  RT-19, under his rule of 2026-09-30 that every not_done_if line of a spec
+  in this repository is covered by a holdout acceptance item or by a
+  deterministic check the spec names: the holdout item below is the gate's,
+  and the builder is never shown it. RT-04 left the lowered threshold to a
+  later task; this is that task.
+
+measure:
+  - npx vitest run test/unit/lowered-thresholds.test.ts
+
+not_done_if:
+  - "the check reads the configuration files whole rather than the lines the range changes, so a low minimum the base already holds fails every range after it"
+  - "a minimum the range removes outright - a key, a flag or the whole configuration file deleted - passes, although it lowers the bar further than any edit"
+  - "a raised minimum, a new one, a line that only moved, a file renamed with its values, or a number on a line no entry of the list matches is reported, so the check fires on ordinary edits and gets switched off"
+  - "the spellings are written inside the matcher, with no exported list a consumer appends to, so a repository on another runner adopts the check by forking it"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, so the only ways past it are to fake the change or to switch the check off"
+  - "a finding does not name the file, the line, the setting and the values it moved between, so the author has to search again for what the check already found"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is missing from `REGISTRY`, so `repo-truth check` never runs it and `--check RT-14` is refused as an unknown check"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/lowered-thresholds.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/lowered-thresholds.ts` exports `checkLoweredThresholds(options)`,
+      where `options` is `{ cwd, base, candidate, sanctions? }` - the
+      repository, the two revisions and the caller's sanctions - and which
+      resolves to a `CheckRecord` (src/index.ts) named `RT-14`. It reads the
+      changes between the merge base of `base` and `candidate` and
+      `candidate`, with renames detected, and the messages of the commits in
+      `base..candidate`, through git with an argument vector and never from
+      the working tree.
+  - type: behavior
+    statement: >
+      It also exports `THRESHOLD_SPELLINGS`, an array of
+      `{ name, files, pattern, example }`: `files` is a regular expression (a
+      `RegExp`) tested against a changed path, `pattern` one tested against
+      each line the range removes or adds in such a file, whose named group
+      `value` holds the number and whose optional named group `key` names the
+      setting, and `example` is a line `pattern` matches. The check reads the
+      array each time it runs, so an entry a consumer appends to it is
+      applied. The list holds at least: a coverage minimum - `lines`,
+      `branches`, `functions` or `statements` - written as the key, bare or in
+      double quotes, a colon and a number, in a vitest, vite or jest
+      configuration file and in `package.json`, `.nycrc` or `.c8rc` with or
+      without `.json`; the flags `--lines`, `--branches`, `--functions` and
+      `--statements`, followed by a space or an equals sign and a number, in
+      `package.json`; pytest's `--cov-fail-under`, followed the same way, in
+      `pyproject.toml`, `setup.cfg`, `tox.ini` or `pytest.ini`; and
+      coverage.py's `fail_under`, an equals sign and a number, in
+      `pyproject.toml`, `setup.cfg`, `tox.ini` or `.coveragerc`.
+  - type: behavior
+    statement: >
+      Within one file, the values an entry matches on the lines the range
+      removes are paired, in order of appearance, with the values the same
+      entry and the same `key` match on the lines the range adds. A pair whose
+      added value is lower is a finding of category `threshold-lowered`; a
+      removed value left without a pair - a key, a flag or the file deleted -
+      is a finding of category `threshold-removed`; a raised value, an equal
+      one and an added value left without a pair are not findings. A file the
+      range renames is one file, so a rename that keeps its values is silent.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`, imported
+      from src/weakened-tests.ts rather than written again - or by the
+      caller's `sanctions` option, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `<category>:<file>:<line>`,
+      and `<category>:<file>` sanctions every finding of that category in
+      that file. The record fails while any finding is unsanctioned and
+      passes once every one is, with the sanctioned findings still listed.
+  - type: behavior
+    statement: >
+      Each finding is one evidence line that opens with `<file>:<line>:` -
+      the path as the repository spells it with every character outside
+      printable ASCII escaped, and the line in the candidate for a lowered
+      value or in the base for a removed one - and holds the word `lowered`
+      or `removed`, the entry's `name`, the old value and, for a lowered one,
+      the new value; a sanctioned finding's line also holds the word
+      `sanctioned` and the reason. A record that holds findings - failing,
+      or passing because every one is sanctioned - holds those lines and
+      nothing else; a record with no finding passes with one evidence line
+      holding `no threshold lowered or removed`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      `REGISTRY` (src/registry.ts) gains one entry, `RT-14`, running
+      `checkLoweredThresholds`, so `repo-truth check --check RT-14` runs it
+      alone; that entry and its import are the only lines of src/registry.ts
+      the task changes. Tests build real throwaway repositories and drive a
+      lowered value, a raised one, a new one, a moved line, a removed key, a
+      deleted configuration file, a renamed one, a value the base already
+      held low, each spelling the list must hold, an entry appended to
+      `THRESHOLD_SPELLINGS`, and a sanction by line and by option, and assert
+      the record of each. The tests keep each fixture number in a constant
+      declared on a line of its own whose text holds none of the words
+      threshold, coverage, minimum or min, so that a later edit to a fixture
+      is not read as a bound lowered in a test file. Nothing outside the
+      three allowed paths changes.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-14.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/lowered-thresholds.ts
+  - src/registry.ts
+  - test/unit/lowered-thresholds.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:registry, repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

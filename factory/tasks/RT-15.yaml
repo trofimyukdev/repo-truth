@@ -1,0 +1,113 @@
+id: RT-15
+repo: repo-truth
+priority: 71
+milestone: M0
+title: The human output escapes control characters - a record cannot rewrite the terminal or the log that prints it
+
+outcome: >
+  `repo-truth check` prints each record's evidence as the check wrote it, and
+  two of the merged checks write what a range carries without escaping it:
+  RT-03 names the landing's subject, RT-02 a path and a figure. A commit
+  subject holding an escape sequence therefore reaches the terminal of
+  whoever runs the command, or the log of the pull request the Action
+  checks - a log whose input a contributor's branch writes - where it can
+  recolour, erase or forge lines, and a line break inside a record can start
+  an output line of its own. The fix belongs in the one place every record
+  passes through, the human rendering, so that a check added later cannot
+  reopen the hole by forgetting to escape. The JSON document is untouched:
+  it is the machine's copy of the record, and JSON already escapes what it
+  must.
+
+  Written on 2026-10-06 by the operator's word of that day, with RT-14 and
+  RT-16 to RT-19, under his rule of 2026-09-30 that every not_done_if line
+  of a spec in this repository is covered by a holdout acceptance item or by
+  a deterministic check the spec names: the holdout item below is the
+  gate's, and the builder is never shown it. No check is added and no
+  verdict changes.
+
+measure:
+  - npx vitest run test/unit/cli.test.ts
+
+not_done_if:
+  - "a control character, an escape sequence or a line break inside a record's name or evidence reaches the human output raw, so a commit subject or a path a range carries can rewrite the terminal or the log that prints it, or start an output line of its own"
+  - "the fix is made inside one check's evidence rather than in the rendering, so the next check that forgets to escape replays again"
+  - "the JSON document changes - a record escaped twice, a string altered, a field added - so a parser reads different text from the same record"
+  - "text a check already escaped is escaped again, so RT-10's escaped evidence prints differently from how it printed before"
+  - "an argument the command echoes in a bad-invocation message, such as an unknown check name or an unknown option, is written to stderr raw"
+  - "an exit code, the order of the records or any wording of either stream other than the escaped characters changes"
+  - "a test of RT-07's or RT-08's in test/unit/cli.test.ts is removed or rewritten to make room, so the contract it pinned is pinned no longer"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/cli.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      In the human form, the default, every character of a record's `name`
+      and of each of its evidence lines that is outside printable ASCII - a
+      code point below the space or above the tilde, the tab included - is
+      written as the escape the checks already use: a backslash, the letter
+      `u`, an opening brace, the code point in lowercase hexadecimal padded
+      with zeros to at least four digits, and a closing brace, as `escapeText`
+      in src/portable-paths.ts writes it. Printable ASCII is written
+      unchanged, so text a check already escaped prints as it did, and one
+      evidence line is always one output line. The escaping lives in
+      src/cli.ts, where the human form is rendered, and no check's module
+      changes.
+  - type: behavior
+    statement: >
+      The same rule applies to what the command writes to stderr when it
+      names something it was given: an unknown check name, an unknown option
+      or command, an unknown format. The exit codes, stdout left empty on a
+      bad invocation, the order of the records and every other word of
+      either stream are unchanged.
+  - type: behavior
+    statement: >
+      `--format json` prints the document RT-07 states exactly as before: a
+      record's strings carry what the check returned, and parsing the
+      document gives them back unchanged.
+  - type: behavior
+    statement: >
+      Tests are added to test/unit/cli.test.ts, and no test there is removed
+      or rewritten: a check pushed into `REGISTRY` whose record's name and
+      evidence hold an escape character, a carriage return, a line feed, a
+      NUL, a DEL, a tab, a letter outside ASCII and a sequence a check had
+      already escaped, asserting that the human output holds no raw control
+      character, keeps one output line per evidence line and shows each
+      escape, and that the already escaped sequence prints unchanged; the
+      same record through `--format json`, parsed back to the original
+      strings; and an unknown `--check` name holding an escape character,
+      asserting exit code 2, an empty stdout and the name escaped on stderr.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-15.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/cli.ts
+  - test/unit/cli.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:cli]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 2.50
+  verify_usd: 1.50
+  wall_minutes: 45
+
+merge: { mode: auto }

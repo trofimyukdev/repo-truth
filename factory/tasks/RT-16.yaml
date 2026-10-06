@@ -1,0 +1,143 @@
+id: RT-16
+repo: repo-truth
+priority: 70
+milestone: M0
+title: Snapshot refreshes - a stored expectation the range rewrites or deletes
+
+outcome: >
+  A snapshot test passes when the output matches what was recorded, so the
+  cheapest way to make a failing one pass is to record again: the runner
+  rewrites the stored expectation to whatever the code now prints, and the
+  suite is green whatever the code does. The move is legitimate when the
+  output was meant to change and invisible when it was not, and the one sign
+  a reader has is the snapshot file changing in the same range as the code.
+  This check reports every snapshot the range rewrites or deletes, says
+  whether the commit that did it also changed a file outside the tests, and
+  leaves the verdict to a human who can sanction it. A new snapshot - a new
+  test recording its first expectation - says nothing. Inline snapshots,
+  written inside test files, are not this version's.
+
+  Written on 2026-10-06 by the operator's word of that day, with RT-14,
+  RT-15 and RT-17 to RT-19, under his rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. RT-04 left
+  the re-recorded snapshot to a later task; this is that task.
+
+measure:
+  - npx vitest run test/unit/snapshot-refreshes.test.ts
+
+not_done_if:
+  - "a snapshot the range adds - the first expectation of a new test - is reported, so every new snapshot test fails the check"
+  - "a snapshot the range rewrites or deletes passes, because the check reads the candidate's tree rather than the range's changes, or reads only one of the two moves"
+  - "a snapshot the range only renames, its content unchanged, is reported as rewritten"
+  - "a snapshot changed before the range, on the base, is reported against the range"
+  - "the snapshot path shapes are written inside the matcher, with no exported list a consumer appends to"
+  - "a finding does not say whether a commit that rewrote the snapshot also changed a file that is neither a test nor a snapshot, so a refresh that hides a change in behaviour reads like a cosmetic one"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, so the only ways past it are to fake the change or to switch the check off"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is missing from `REGISTRY`, so `repo-truth check` never runs it and `--check RT-16` is refused as an unknown check"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/snapshot-refreshes.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/snapshot-refreshes.ts` exports `checkSnapshotRefreshes(options)`,
+      where `options` is `{ cwd, base, candidate, sanctions? }`, and which
+      resolves to a `CheckRecord` (src/index.ts) named `RT-16`. It reads the
+      changes between the merge base of `base` and `candidate` and
+      `candidate`, with renames detected, and the commits of
+      `base..candidate` with the paths each one changed, through git with an
+      argument vector and never from the working tree.
+  - type: behavior
+    statement: >
+      It also exports `SNAPSHOT_PATHS`, an array of regular expressions (each
+      a `RegExp`) tested against a path, which it reads each time it runs, so
+      a shape a consumer appends to it is applied. A path is a snapshot when
+      one of them matches it; the list matches at least every file under a
+      directory named `__snapshots__`, every file whose name ends in `.snap`,
+      and every file whose name ends in `.ambr`.
+  - type: behavior
+    statement: >
+      A snapshot the range modifies, or renames with a change to its content,
+      is a finding of category `snapshot-refreshed`; one the range deletes is
+      a finding of category `snapshot-deleted`; one it adds, or renames with
+      its content unchanged, is not a finding. A finding's id is
+      `<category>:<path>`, the path in the candidate for a refreshed snapshot
+      and in the base for a deleted one.
+  - type: behavior
+    statement: >
+      Each finding is one evidence line that opens with `<path>:` - every
+      character outside printable ASCII escaped - and holds the word
+      `refreshed` or `deleted`. When a commit of the range that modified or
+      deleted that snapshot also changed a path that is neither a snapshot
+      nor a test file - a path none of the patterns of
+      `WEAKENING_SPELLINGS.testFiles` (src/weakened-tests.ts, imported rather
+      than restated) matches - the line also holds the words
+      `beside a code change` and that commit's id, at least its first twelve
+      characters. A record that holds findings holds those lines and nothing
+      else; a record with no finding passes with one evidence line holding
+      `no snapshot refreshed or deleted`.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`, imported
+      from src/weakened-tests.ts - or by the caller's `sanctions` option, a
+      plain object whose keys are ids and whose values are the reasons. The
+      record fails while any finding is unsanctioned and passes once every one
+      is, with the sanctioned findings still listed, each line holding the
+      word `sanctioned` and the reason.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      `REGISTRY` (src/registry.ts) gains one entry, `RT-16`, running
+      `checkSnapshotRefreshes`, so `repo-truth check --check RT-16` runs it
+      alone; that entry and its import are the only lines of src/registry.ts
+      the task changes. Tests build real throwaway repositories and drive a
+      snapshot added, modified, deleted, renamed unchanged and renamed with a
+      change, a refresh in a commit that also changed code and one in a
+      commit that changed only tests, a snapshot the base changed before the
+      range, each shape the list must hold, a shape appended to
+      `SNAPSHOT_PATHS`, and a sanction by line and by option, and assert the
+      record of each. Nothing outside the three allowed paths changes.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-16.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/snapshot-refreshes.ts
+  - src/registry.ts
+  - test/unit/snapshot-refreshes.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:registry, repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
