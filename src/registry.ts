@@ -18,6 +18,7 @@ import { checkSymlinks } from "./symlinks.js";
 import { checkLargeBlobs } from "./large-blobs.js";
 import { checkLoweredThresholds } from "./lowered-thresholds.js";
 import { checkSnapshotRefreshes } from "./snapshot-refreshes.js";
+import { checkDependencySources } from "./dependency-sources.js";
 
 /** The repository a check runs in. */
 export interface Repository {
@@ -61,4 +62,5 @@ export const REGISTRY: RegistryEntry[] = [
   entry("RT-12", checkLargeBlobs),
   entry("RT-14", checkLoweredThresholds),
   entry("RT-16", checkSnapshotRefreshes),
+  entry("RT-18", checkDependencySources),
 ];
