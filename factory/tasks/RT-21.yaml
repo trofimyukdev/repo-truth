@@ -1,0 +1,118 @@
+id: RT-21
+repo: repo-truth
+priority: 67
+milestone: M0
+title: Figure claims - the git figures a range adds to its pages and its commit messages, read through git
+
+outcome: >
+  This repository's pages and commit messages write a measured figure in
+  one form: a git command in a code span, the word printed, and the output
+  in a code span. RT-19 runs such commands again; this task finds them. It
+  reads, through git and never from the working tree, what a range adds to
+  its Markdown pages and what its commits say, and answers with every claim
+  in that form - where it is, the command and the claimed output - or, when
+  it cannot read, with a failure that names why, never an exception. A
+  figure the base already held is not the range's, so only the lines the
+  range adds are claims. Whether a command may run is decided by RT-20, and
+  running it is RT-19's.
+
+  Written on 2026-10-07 by the operator's word of that day, which split
+  RT-19 into smaller tasks, under his rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/figure-claims.test.ts
+
+not_done_if:
+  - "the whole document is read rather than the lines the range adds, so a stale figure nobody in the range wrote is claimed against every range after it"
+  - "commit bodies are not read, or only commit bodies are, while the form appears in both"
+  - "a revision that names no commit, or a git invocation that fails, is thrown to the caller or answered with claims instead of a failure naming the cause"
+  - "a page is read from the working tree, or git is run through a shell, so the claims depend on what is checked out or a file name runs a command"
+  - "a claim is read where the form does not hold - an output span the word `printed` does not precede, a command in another paragraph, a file whose name does not end in `.md`, a commit outside `base..candidate` - or a claim that holds the form is missed"
+  - "a claim does not say where it is - the path and the line of its claimed output in the candidate, or the id of the commit whose body holds it - or carries a command or an output other than its code spans' text"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/figure-claims.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/figure-claims.ts` exports `readFigureClaims(options)`, where
+      `options` is `{ cwd, base, candidate }`, which resolves either to
+      `{ claims }`, an array, or to `{ failure }`, a string naming the
+      cause, and never rejects. Each claim is `{ where, command, claimed }`:
+      `where` is `<path>:<line>` for a claim in a page - its path in the
+      candidate and the number of the line that holds the claimed output -
+      or the full id of the commit for a claim in a commit body; `command`
+      is the text of the command's code span and `claimed` the text of the
+      claimed output's. It reads through git with an argument vector, in
+      `cwd`, and never from the working tree: the lines the range - the
+      merge base of `base` and `candidate` to `candidate` - adds to files
+      whose names end in `.md`, with the paragraphs that hold them, and the
+      body of every commit in `base..candidate`.
+  - type: behavior
+    statement: >
+      A claim is a code span whose text begins with `git ` and is followed,
+      later in the same block, by the word `printed`, one or more spaces,
+      and a second code span: the claimed output. The command of the claim
+      is the nearest such code span before that word. A block is one
+      paragraph of a page - the lines between two blank lines, or between a
+      blank line and the start or the end of the page - or the whole body of
+      one commit. A page's claim is read when the line that
+      holds its claimed output is a line the range adds. A code span is read
+      as CommonMark reads one: a run of backticks up to the next run of the
+      same length, its line breaks read as spaces.
+  - type: behavior
+    statement: >
+      It fails closed: a revision that names no commit yields a failure
+      whose text names that revision, and a git invocation that fails, or an
+      object of the range that git cannot read, yields one whose text names
+      the cause - never a list of claims beside it, never a thrown error and
+      never a rejected promise.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories and drive a claim in a page
+      the range adds, a claim whose command sits on a line the base held and
+      whose output sits on a line the range adds, a claim whose output line
+      the base already held, a file whose name does not end in `.md`, a
+      claim in a commit body and one in a commit the base holds, a base that
+      is not an ancestor of the candidate, a working tree whose page differs
+      from the candidate's, a page whose name holds characters a shell would
+      act on, and a revision that names no commit, and assert the answer of
+      each. Nothing outside the two allowed paths changes.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-21.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/figure-claims.ts
+  - test/unit/figure-claims.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - src/registry.ts
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:git, repo-truth:diff]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

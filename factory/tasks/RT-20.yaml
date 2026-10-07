@@ -1,0 +1,142 @@
+id: RT-20
+repo: repo-truth
+priority: 67
+milestone: M0
+title: Replay plans - which git command text a figure may be run again with, decided without running anything
+
+outcome: >
+  RT-19 runs again the git command a page or a commit quotes beside a
+  figure, and the whole risk of that check sits in one decision: which
+  command text may run at all. A line of documentation is text anybody can
+  write, so the answer has to come from lists of what is safe, read the way
+  a shell would read the text but with nothing expanded and nothing run: a
+  fixed set of read-only git subcommands, a fixed list of options for each,
+  and revisions that name commits by their ids, so that the answer is the
+  same on any clone. This task is that decision alone, as a pure function
+  with no git, no file and no process behind it, so that every branch of it
+  can be measured quickly. RT-21 reads the claims, and RT-19 runs what this
+  function plans. A command it does not plan is not replayable, which is an
+  answer and never an error.
+
+  Written on 2026-10-07 by the operator's word of that day, which split
+  RT-19 into smaller tasks, under his rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/replay-plan.test.ts
+
+not_done_if:
+  - "a pipe other than a final `| wc -l`, a redirection, a command substitution, an expansion or a second command in the span is planned, as a shell would run it, so a line of documentation runs what it likes in the checkout"
+  - "options are refused by a list of dangerous ones rather than admitted by a list of safe ones, so an option that writes a file or starts a program - `--output`, `--open-files-in-pager`, `-O`, `--ext-diff`, `--textconv`, `-c`, `-C`, `--exec-path`, `--git-dir`, `--work-tree`, or a format that verifies a signature - is planned"
+  - "a command that names a branch, a tag, `HEAD` or no revision at all is planned, so its answer drifts with the checkout and a claim that was true fails"
+  - "a command the lists admit, on commits named by their ids, is answered not replayable, or its plan holds other words than the command's after `git`, misses its final `| wc -l`, or does not name the commits its revisions name, so a true figure is never reproduced and a commit the repository does not hold cannot be told"
+  - "deciding runs something: the function starts git or another process, or reads or writes a file, so the decision that keeps a command from running has already run one"
+  - "a command the function cannot read throws instead of being answered not replayable"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/replay-plan.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/replay-plan.ts` exports `planReplay(command)`, which takes the
+      text of a command as a page quotes it and returns either a plan,
+      `{ args, countLines, commits }`, or `null` when the command is not
+      replayable. `args` is the array of the command's words after `git`
+      and before its pipe, the subcommand first, each with its quotes
+      removed; `countLines` is true exactly when the command ends with
+      `| wc -l`; `commits` is every commit id its revisions name, without a
+      caret and its digits, each once, in the order the command first names
+      it. The function is pure: it starts no process, reads and writes no
+      file, and imports no module of Node.js and no package; the same text
+      always gets the same answer, and no text makes it throw.
+  - type: behavior
+    statement: >
+      A command is split into words as a POSIX shell splits them, with
+      nothing expanded: words are separated by spaces or tabs, and a word is
+      made of parts written together, each single-quoted, double-quoted when
+      it holds no dollar sign, backtick or backslash, or bare when it holds
+      only letters, digits and the characters `.-_/:=^@,%` - so
+      `--format='%h %s'` is one word. Inside single quotes every character
+      is literal, so a quoted `$(...)` is text and never a substitution. A
+      `|` outside quotes is a word of its own, with or without spaces around
+      it. Anything else outside quotes - a semicolon, an ampersand, a
+      redirection, a dollar sign, a backtick, a backslash, a parenthesis, a
+      glob, a tilde, a comment - makes the command not replayable, and so
+      does a quote that is not closed.
+  - type: behavior
+    statement: >
+      A command is replayable when its words are `git`, then one of the
+      subcommands `rev-list`, `log`, `grep` and `ls-tree`, then words each
+      of which is an option on that subcommand's list, a lone `--`, or an
+      argument that does not begin with a minus sign - optionally followed
+      by `|`, `wc` and `-l` as its last words; a word between `git` and the
+      subcommand makes it not replayable. The option lists: `rev-list` takes
+      `--count`, `--merges`, `--no-merges`, `--first-parent` and
+      `--reverse`; `log` takes `--oneline`, `--merges`, `--no-merges`,
+      `--first-parent`, `--reverse`, a minus sign followed by digits, the
+      words that begin `--date=`, and the words that begin `--format=` or
+      `--pretty=` and do not hold `%G`, the placeholder that verifies a
+      signature and so starts a program; `grep` takes `-c`, `-l`, `-n`,
+      `-E`, `-F`, `-i`, `-w`, `-e`, `--count` and `--files-with-matches`;
+      `ls-tree` takes `-r`, `-d`, `-t`, `--name-only` and `--full-tree`. No
+      other option is planned.
+  - type: behavior
+    statement: >
+      The revisions of a command are, for `rev-list` and `log`, its
+      arguments before a lone `--`; for `grep`, its arguments before a lone
+      `--` other than the pattern - the first argument when no `-e` was
+      given, and the word after each `-e`, an `-e` with no word after it
+      making the command not replayable; for `ls-tree`, its first argument.
+      A command is planned only when it names at least one revision and
+      every revision is a commit id of seven to forty hexadecimal digits,
+      alone or as `<id>..<id>` or `<id>...<id>`, each id optionally followed
+      by a caret and digits; a command that names a branch, a tag, `HEAD` or
+      no revision is not replayable.
+  - type: behavior
+    statement: >
+      Tests drive every subcommand and every option on the lists, each road
+      out of them - a second command after `;`, `&&` or `||`, a command
+      substitution in both spellings, a redirection, a pipe to another
+      program, a second pipe after `wc -l`, a dollar sign or a backtick
+      inside double quotes, a quote that is not closed, a word between `git`
+      and the subcommand, each option the not_done_if lines name - each
+      revision shape that is planned and each that is not, a quoted word,
+      and `| wc -l` written with and without spaces, and assert the answer
+      of each. Nothing outside the two allowed paths changes.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-20.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/replay-plan.ts
+  - test/unit/replay-plan.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - src/registry.ts
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:git]
+exclusive_resources: []
+
+risk:
+  level: high
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
