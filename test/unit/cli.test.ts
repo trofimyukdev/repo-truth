@@ -303,3 +303,40 @@ describe("package.json", () => {
     expect(pkg.bin["repo-truth"]).toBe("dist/cli.js");
   });
 });
+
+describe("control characters in the human output", () => {
+  const nasty = "a\u001b[31mb\rc\nd\u0000e\u007ff\tgé \\u{001b} z";
+  const escaped = "a\\u{001b}[31mb\\u{000d}c\\u{000a}d\\u{0000}e\\u{007f}f\\u{0009}g\\u{00e9} \\u{001b} z";
+  const hostile = (): RegistryEntry => ({
+    name: nasty,
+    run: () => ({ name: nasty, status: "fail", evidence: [nasty, "plain"] }),
+  });
+
+  it("escapes every character outside printable ASCII, one line per evidence line", async () => {
+    useRegistry(hostile());
+    const { stdout } = await run(range(), repo);
+    expect(stdout).not.toMatch(/[^\x20-\x7e\n]/);
+    expect(stdout.split("\n")).toEqual([
+      "FAIL " + escaped,
+      "     " + escaped,
+      "     plain",
+      "repo-truth: at least one check failed",
+      "",
+    ]);
+  });
+
+  it("leaves the JSON document's strings as the check returned them", async () => {
+    useRegistry(hostile());
+    const doc = JSON.parse((await run([...range(), "--format", "json"], repo)).stdout);
+    expect(doc.records).toEqual([{ name: nasty, status: "fail", evidence: [nasty, "plain"] }]);
+  });
+
+  it("escapes an unknown check name on stderr", async () => {
+    useRegistry(stub("A", "pass"));
+    const { code, stdout, stderr } = await run([...range(), "--check", "x\u001b[2Jy\nz"], repo);
+    expect(code).toBe(EXIT_BAD_INVOCATION);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("unknown check: x\\u{001b}[2Jy\\u{000a}z");
+    expect(stderr).not.toMatch(/[^\x20-\x7e\n]/);
+  });
+});

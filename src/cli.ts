@@ -164,11 +164,22 @@ async function runOne(
   }
 }
 
+/** Everything outside printable ASCII becomes `\u{hex}`, the form the checks already use. */
+function escapeControl(text: string): string {
+  let escaped = "";
+  for (const char of text) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    escaped +=
+      codePoint >= 0x20 && codePoint <= 0x7e ? char : `\\u{${codePoint.toString(16).padStart(4, "0")}}`;
+  }
+  return escaped;
+}
+
 function renderText(records: readonly CheckRecord[], ok: boolean): string {
   const lines: string[] = [];
   for (const record of records) {
-    lines.push(`${record.status.toUpperCase().padEnd(4)} ${record.name}`);
-    for (const line of record.evidence) lines.push(`     ${line}`);
+    lines.push(`${record.status.toUpperCase().padEnd(4)} ${escapeControl(record.name)}`);
+    for (const line of record.evidence) lines.push(`     ${escapeControl(line)}`);
   }
   lines.push(ok ? "repo-truth: all checks passed" : "repo-truth: at least one check failed");
   return lines.join("\n") + "\n";
@@ -242,7 +253,7 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
     return exitCode;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    err(`repo-truth: ${message}\n`);
+    err(`repo-truth: ${escapeControl(message)}\n`);
     if (error instanceof InvocationError || error instanceof RangeResolutionError) err(USAGE + "\n");
     return EXIT_BAD_INVOCATION;
   }
@@ -264,7 +275,9 @@ if (isEntryPoint()) {
       process.exitCode = code;
     },
     (error) => {
-      process.stderr.write(`repo-truth: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(
+        `repo-truth: ${escapeControl(error instanceof Error ? error.message : String(error))}\n`,
+      );
       process.exitCode = EXIT_BAD_INVOCATION;
     },
   );
