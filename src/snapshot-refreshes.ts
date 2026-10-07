@@ -142,6 +142,9 @@ function draftsOf(entries: readonly Entry[], isSnapshot: (path: string) => boole
     if (status === "A" || status === "C" || !isSnapshot(oldPath)) {
       continue;
     }
+    if (status === "R" && !entry.contentChanged) {
+      continue;
+    }
     if (status === "D" || !isSnapshot(newPath)) {
       drafts.push({ category: "snapshot-deleted", path: oldPath, paths: [oldPath, newPath] });
     } else if (entry.contentChanged) {

@@ -118,6 +118,15 @@ describe("checkSnapshotRefreshes", () => {
     expect(record.status).toBe("pass");
   });
 
+  it("does not report a snapshot renamed out of the snapshot shapes with its content unchanged", async () => {
+    const base = await commit(repo, { "a.snap": BODY }, "base");
+    await git(repo, ["mv", "a.snap", "a.txt"]);
+    const candidate = await commit(repo, {});
+    const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate });
+    expect(record.status).toBe("pass");
+    expect(record.evidence[0]).toContain("no snapshot refreshed or deleted");
+  });
+
   it("reports a rename with a change as refreshed, at the candidate path", async () => {
     const base = await commit(repo, { "a.snap": BODY }, "base");
     await git(repo, ["mv", "a.snap", "b.snap"]);
