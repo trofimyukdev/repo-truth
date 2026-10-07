@@ -16,6 +16,7 @@ import { checkConflictMarkers } from "./conflict-markers.js";
 import { checkPortablePaths } from "./portable-paths.js";
 import { checkSymlinks } from "./symlinks.js";
 import { checkLargeBlobs } from "./large-blobs.js";
+import { checkLoweredThresholds } from "./lowered-thresholds.js";
 
 /** The repository a check runs in. */
 export interface Repository {
@@ -57,4 +58,5 @@ export const REGISTRY: RegistryEntry[] = [
   entry("RT-10", checkPortablePaths),
   entry("RT-11", checkSymlinks),
   entry("RT-12", checkLargeBlobs),
+  entry("RT-14", checkLoweredThresholds),
 ];
