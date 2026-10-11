@@ -26,6 +26,14 @@ outcome: >
   item below is the gate's, and the builder is never shown it. No check is
   added and no source file changes.
 
+  Offered again by the operator on 2026-10-11. The first version was
+  built four times on 2026-10-07, and its holdout item passed each time,
+  but the gate refused every candidate on one count alone: the stage that
+  scores how strong the tests are had nothing to score in a change that
+  adds only tests, and the gate counted that stage as unverified. The
+  factory now marks such a change and lets a passed holdout answer for
+  that stage. Nothing else in this task changes.
+
 measure:
   - npm run build && node --test test/e2e/cli.e2e.mjs
 
