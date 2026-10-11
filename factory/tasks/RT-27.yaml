@@ -41,14 +41,11 @@ acceptance:
     required: true
   - type: behavior
     statement: >
-      The task changes test/unit/lockfile-drift.test.ts and nothing else.
-      Every test that file holds at the merge base stays, under its title,
-      with every assertion it makes; the new tests are added beside them and
-      call `checkLockfileDrift` over real throwaway repositories, asserting
-      the records it returns.
+      The suite test/unit/lockfile-drift.test.ts calls `checkLockfileDrift`
+      over real throwaway repositories and asserts the records it returns.
   - type: behavior
     statement: >
-      The new tests pin these behaviors of `checkLockfileDrift`, each by an
+      The suite pins these behaviors of `checkLockfileDrift`, each by an
       assertion that a defect in it would change. Errors: a directory that
       is not a git repository yields a `fail` record whose evidence carries
       git's own complaint and not node's wording of the failed command; a

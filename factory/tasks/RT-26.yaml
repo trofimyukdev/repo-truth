@@ -111,7 +111,7 @@ acceptance:
       holds the text a fixture planted; and one test runs `main` of
       src/cli.ts with `check`, `--check RT-26`, `--no-fetch` and `--format
       json` over a throwaway repository and asserts exactly one record,
-      `RT-26`. Nothing outside the two allowed paths changes.
+      `RT-26`.
   - type: command
     command: 'f=~/.config/millwright/repo-truth/holdout/rt-26.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
     required: true

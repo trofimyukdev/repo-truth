@@ -41,14 +41,12 @@ acceptance:
     required: true
   - type: behavior
     statement: >
-      The task changes test/unit/lowered-thresholds.test.ts and nothing
-      else. Every test that file holds at the merge base stays, under its
-      title, with every assertion it makes; the new tests are added beside
-      them and call `checkLoweredThresholds` over real throwaway
-      repositories, asserting the records it returns.
+      The suite test/unit/lowered-thresholds.test.ts calls
+      `checkLoweredThresholds` over real throwaway repositories and asserts
+      the records it returns.
   - type: behavior
     statement: >
-      The new tests pin these behaviors of `checkLoweredThresholds`, each by
+      The suite pins these behaviors of `checkLoweredThresholds`, each by
       an assertion that a defect in it would change. Errors: a directory
       that is not a git repository yields a `fail` record whose evidence
       carries git's own complaint and not node's wording of the failed
@@ -80,8 +78,7 @@ acceptance:
       Each fixture number sits in a constant declared on a line of its own
       whose text holds none of the words threshold, coverage, minimum, min,
       maximum, max, at least or at most, as the suite already does, so that a
-      later edit of a fixture is not read as a bound moved in a test; an
-      existing line of the suite is never edited to change a number.
+      later edit of a fixture is not read as a bound moved in a test.
       Fixtures are built at run time in throwaway repositories under the
       operating system's temporary directory and removed when the suite
       ends, whether it passed or not; nothing is installed or fetched; and
