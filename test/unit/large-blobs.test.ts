@@ -138,4 +138,98 @@ describe("checkLargeBlobs", () => {
     expect(record.status).toBe("fail");
     expect(record.evidence[0]).toContain("maxBytes");
   });
+
+  describe("evidence", () => {
+    const OVER_SIZE = 2000;
+    const LIMIT_SIZE = 1000;
+    const NAMES_NO_COMMIT = "large-blobs check could not run: revision";
+
+    const findingFor = async (name: string | Buffer): Promise<string> => {
+      const target = typeof name === "string" ? join(repo, name) : Buffer.concat([Buffer.from(`${repo}/`), name]);
+      await writeFile(target, blob(OVER_SIZE));
+      await git(repo, ["add", "-A"]);
+      await git(repo, ["commit", "--quiet", "-m", "named"]);
+      const candidate = await git(repo, ["rev-parse", "HEAD"]);
+      const record = await checkLargeBlobs({ cwd: repo, base, candidate, maxBytes: LIMIT_SIZE });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      return record.evidence[0] as string;
+    };
+
+    it("carries git's own complaint for a directory that is not a repository", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "repo-truth-not-a-repo-"));
+      try {
+        const record = await checkLargeBlobs({ cwd: dir, base: "a", candidate: "b" });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toHaveLength(1);
+        expect(record.evidence[0]).toContain(`${NAMES_NO_COMMIT} "a" names no commit: `);
+        expect(record.evidence[0]).toContain("not a git repository");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("carries, after the revision, the message of the git command that refused it", async () => {
+      const record = await checkLargeBlobs({ cwd: repo, base, candidate: "no-such-rev" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      expect((record.evidence[0] as string).trimEnd()).toBe(
+        `${NAMES_NO_COMMIT} "no-such-rev" names no commit: Command failed: git rev-parse --verify --quiet no-such-rev^{commit}`,
+      );
+      const first = await checkLargeBlobs({ cwd: repo, base: "no-such-base", candidate: base });
+      expect(first.evidence[0]).toMatch(/^large-blobs check could not run: revision "no-such-base" names no commit: ./);
+    });
+
+    it.each(["", "-x", "--all", "-"])("refuses the revision %j before git runs", async (revision) => {
+      const asBase = await checkLargeBlobs({ cwd: repo, base: revision, candidate: base });
+      expect(asBase).toEqual({
+        name: "RT-12",
+        status: "fail",
+        evidence: [`${NAMES_NO_COMMIT} "${revision}" names no commit`],
+      });
+      const asCandidate = await checkLargeBlobs({ cwd: repo, base, candidate: revision });
+      expect(asCandidate.status).toBe("fail");
+      expect(asCandidate.evidence).toEqual([`${NAMES_NO_COMMIT} "${revision}" names no commit`]);
+    });
+
+    it("refuses a bad revision before git runs even where there is no repository", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "repo-truth-not-a-repo-"));
+      try {
+        const record = await checkLargeBlobs({ cwd: dir, base: "-x", candidate: "b" });
+        expect(record.evidence).toEqual([`${NAMES_NO_COMMIT} "-x" names no commit`]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("escapes every character below 0x20, 0x7f and 0x80 to 0x9f in a path", async () => {
+      const cases: [string, string][] = [
+        ["a\u0001b", "a\\u{0001}b"],
+        ["a\tb", "a\\u{0009}b"],
+        ["a\u001fb", "a\\u{001f}b"],
+        ["a\u007fb", "a\\u{007f}b"],
+        ["a\u0080b", "a\\u{0080}b"],
+        ["a\u009fb", "a\\u{009f}b"],
+        ["a\u001bb", "a\\u{001b}b"],
+      ];
+      for (const [name, shown] of cases) {
+        const line = await findingFor(name);
+        expect(line).toBe(`"${shown}" is ${OVER_SIZE} bytes, over the limit of ${LIMIT_SIZE} bytes`);
+        await git(repo, ["reset", "--quiet", "--hard", base]);
+      }
+    });
+
+    it("prints a space, a tilde and the character 0xa0 as they are", async () => {
+      const name = "a b~c d";
+      const line = await findingFor(name);
+      expect(line).toBe(`"${name}" is ${OVER_SIZE} bytes, over the limit of ${LIMIT_SIZE} bytes`);
+    });
+
+    it("reports a blob whose path is not valid UTF-8 as a finding, its path read byte for byte", async () => {
+      const name = Buffer.from([0x62, 0x61, 0x64, 0xe9, 0x80, 0xff, 0x2e, 0x62, 0x69, 0x6e]);
+      const line = await findingFor(name);
+      expect(line).toBe(`"badé\\u{0080}ÿ.bin" is ${OVER_SIZE} bytes, over the limit of ${LIMIT_SIZE} bytes`);
+      expect(line).not.toContain("could not run");
+    });
+  });
 });
