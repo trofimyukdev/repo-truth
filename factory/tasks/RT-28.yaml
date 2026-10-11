@@ -1,0 +1,161 @@
+id: RT-28
+repo: repo-truth
+priority: 67
+milestone: M0
+title: Claim text - the figure claims one page or one commit body holds, its code spans read as CommonMark reads them, and nothing run
+
+outcome: >
+  This repository's pages and commit messages write a measured figure in
+  one form: a git command in a code span, the word printed, and the output
+  in a code span. RT-21 reads, through git, what a range adds to its pages
+  and its commit messages; this task reads the form in a text. It is a
+  pure function with no git, no file and no process behind it, so that
+  every rule of the form can be measured quickly: which characters are
+  code, which word joins a command to its output, where a block ends, and
+  on which line a claim is. RT-21 calls it for every page and every commit
+  body it reads, and RT-19 runs again what RT-21 answers.
+
+  The first version of RT-21 held this reading in the same module as its
+  git calls. Both candidates built to it were refused on 2026-10-11, and
+  each time about a third of the mutants the probe made in the module
+  lived, so the reading is now a task of its own. One rule is written out
+  in full because it was read two ways: the first candidate read it as
+  CommonMark does, and that candidate's review the other way. The review
+  found: "The CommonMark code-span scanner in readFigureClaims
+  misidentifies span boundaries whenever a backslash-escapable character
+  (including a backtick) immediately precedes a backtick earlier in the
+  same block, causing a real claim later in that block to be missed
+  entirely", and rested it on CommonMark's example in its section on code
+  spans, "Note that backslash escapes do not work in code spans. All
+  backslashes are treated literally", where `foo\`bar` is the code foo\
+  followed by bar and a backtick. That sentence is about a backslash inside
+  a span. Before a span, CommonMark's section on backslash escapes says
+  that escaped characters "do not have their usual Markdown meanings", and
+  its own example of that is a backtick: \`not code` is text. The second
+  candidate followed the review, so it reads a span CommonMark does not.
+  Both halves are stated below.
+
+  Written on 2026-10-11 by the operator's word of that day, which had
+  RT-21 written again, under his rule of 2026-09-30 that every not_done_if
+  line of a spec in this repository is covered by a holdout acceptance
+  item or by a deterministic check the spec names: the holdout item below
+  is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/figure-text.test.ts
+
+not_done_if:
+  - "a backtick after a backslash that escapes it opens a code span, a backtick after an escaped backslash does not, or a backslash inside a code span keeps the backtick string after it from closing the span - so a claim CommonMark does not show is read, or one it shows is missed"
+  - "a code span is read other than as CommonMark reads one: closed by a backtick string of another length, a backtick string with no closing string of its length taken as code or ending the search for spans, line breaks kept in the content, or the one space at each end removed from content that is all spaces, or kept where it is to go"
+  - "a claim is read where the form does not hold - an output span not directly after the word `printed` and its spaces, a tab or a line break in place of a space, `printed` inside a code span or inside another word, a command span that does not begin with `git `, a command in another block - or a claim that holds the form is missed, or its command is not the nearest such span before the word"
+  - "a page's blocks are not its paragraphs or a body is not one block: a line of spaces and tabs does not end a paragraph, or a body is cut at its blank lines, so a claim split across two paragraphs is read in a page or missed in a body"
+  - "a claim's line is not the line, counted from 1, on which its claimed output's code span opens, or a carriage return before a line feed is read as part of a line or as a line of its own"
+  - "reading runs something or reaches outside the text: the function starts git or another process, reads or writes a file, or imports a module of Node.js or a package"
+  - "a text the function cannot read throws, or one text gets two different answers"
+  - "a file other than src/figure-text.ts and test/unit/figure-text.test.ts changes - src/figure-claims.ts, another test, package.json - so the reading of the text and the reading of git are no longer two tasks"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/figure-text.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/figure-text.ts` exports `claimsInText(text, blocks)`, where
+      `blocks` is `"paragraphs"` for a page or `"whole"` for a commit body,
+      and which returns an array with one `{ line, command, claimed }` for
+      each claim in `text`, in the order their claimed outputs appear:
+      `line` is the number, counted from 1, of the line on which the
+      claimed output's code span opens, `command` the text of the command's
+      code span and `claimed` the text of the claimed output's. A line ends
+      at a line feed, and a carriage return just before a line feed is not
+      part of the line. With `"paragraphs"` a block is one paragraph - the
+      lines between two blank lines, or between a blank line and the start
+      or the end of the text, a blank line being one that holds nothing but
+      spaces and tabs; with `"whole"` the whole text is one block. The
+      function is pure: it starts no process, reads and writes no file, and
+      imports no module of Node.js and no package; the same arguments
+      always get the same answer, and no string makes it throw.
+  - type: behavior
+    statement: >
+      A claim is a code span whose text begins with `git `, followed later
+      in the same block by the word `printed` - outside every code span,
+      with no letter, digit or underscore just before it -
+      then one or more spaces, then a second code span, the claimed output,
+      opening right after the last of those spaces. A tab or a line break
+      there is not a space. The command of the claim is the nearest code
+      span before the word whose text begins with `git `. A `printed` with
+      no such span before it, or with no code span opening after its
+      spaces, is not a claim, and one `printed` makes at most one claim.
+  - type: behavior
+    statement: >
+      Code spans are read as CommonMark reads them. A backtick string is a
+      run of one or more backticks taken whole; it opens a span that ends
+      at the next backtick string of the same length, and one with no later
+      string of its length is text, the search going on after it. The
+      content is the text between the two strings with each line break
+      read as a space; when it then begins and ends with a space and is not
+      all spaces, one space is removed from each end. Outside a code span a
+      backslash before an ASCII punctuation character escapes it, so a
+      backtick after such a backslash opens no span - \`not code` is text -
+      and a backslash after another backslash is escaped and escapes
+      nothing, so \\`git log -1 abc1234` holds a span. Inside a code span a
+      backslash is a character like any other and the backtick string after
+      it still closes the span: `foo\`bar` is the span foo\ followed by the
+      text bar and a backtick. The first review's own text,
+      a\`git log` printed `9`, holds no claim: its one span is printed. The
+      function reads no raw HTML, autolink, link or emphasis, and no block
+      other than the paragraph; a backtick inside such a construct is read
+      by the rules above.
+  - type: behavior
+    statement: >
+      Tests call `claimsInText` and assert the whole answer of each case:
+      every part of the form and each road out of it; a command and its
+      output in two paragraphs, as a page and as a body; a line of spaces
+      and tabs between them; carriage returns; a span broken across two
+      lines; backtick strings of one, two and three backticks interleaved,
+      and one with no closing string of its length; content with a space at
+      each end and content of spaces only; each backslash case above; a
+      text with no backtick and the empty text. A test asserts that the
+      module imports no module of Node.js and no package.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-28.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/figure-text.ts
+  - test/unit/figure-text.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/figure-claims.ts
+  - src/checks/**
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:figure-text]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

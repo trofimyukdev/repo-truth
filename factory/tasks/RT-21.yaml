@@ -2,7 +2,7 @@ id: RT-21
 repo: repo-truth
 priority: 67
 milestone: M0
-title: Figure claims - the git figures a range adds to its pages and its commit messages, read through git
+title: Figure claims - the git figures a range adds to its pages and its commit messages, read through git, a renamed page read against the page it was
 
 outcome: >
   This repository's pages and commit messages write a measured figure in
@@ -16,22 +16,38 @@ outcome: >
   range adds are claims. Whether a command may run is decided by RT-20, and
   running it is RT-19's.
 
+  This is the second version. The first was built twice on 2026-10-11 and
+  refused twice. The second candidate's review found: "A pure file rename
+  (no content change) between the merge-base and the candidate causes every
+  figure claim already present in the renamed file to be reported as a
+  fresh claim of the range, because readPages diffs with --no-renames and
+  treats the whole new-path blob as added when the old id is zero". A page
+  the range renames is now read against the file it was renamed from. And
+  in both candidates about a third of the mutants the probe made lived, in
+  one module that read git and read the text as well, so the text is now
+  RT-28's: this module keeps the git half and asks RT-28's function for the
+  claims of each page and each commit body, which also settles the
+  backslash rule that the first candidate and its review read two ways.
+
   Written on 2026-10-07 by the operator's word of that day, which split
-  RT-19 into smaller tasks, under his rule of 2026-09-30 that every
-  not_done_if line of a spec in this repository is covered by a holdout
-  acceptance item or by a deterministic check the spec names: the holdout
-  item below is the gate's, and the builder is never shown it.
+  RT-19 into smaller tasks, and made this version on 2026-10-11 by his word
+  of that day, under his rule of 2026-09-30 that every not_done_if line of
+  a spec in this repository is covered by a holdout acceptance item or by
+  a deterministic check the spec names: the holdout item below is the
+  gate's, and the builder is never shown it.
 
 measure:
   - npx vitest run test/unit/figure-claims.test.ts
 
 not_done_if:
   - "the whole document is read rather than the lines the range adds, so a stale figure nobody in the range wrote is claimed against every range after it"
+  - "a page the range renames, with no edit or with edits, is read as a page the range adds, so every figure it already held under its old path is claimed again - or a renamed page is passed over, so a figure the range adds to it is missed"
   - "commit bodies are not read, or only commit bodies are, while the form appears in both"
   - "a revision that names no commit, or a git invocation that fails, is thrown to the caller or answered with claims instead of a failure naming the cause"
   - "a page is read from the working tree, or git is run through a shell, so the claims depend on what is checked out or a file name runs a command"
-  - "a claim is read where the form does not hold - an output span the word `printed` does not precede, a command in another paragraph, a file whose name does not end in `.md`, a commit outside `base..candidate` - or a claim that holds the form is missed"
+  - "a claim is read in a file whose name does not end in `.md` or in a commit outside `base..candidate`, or a page's text or a body is read with code of this module's own instead of `claimsInText` (src/figure-text.ts), with `\"paragraphs\"` for a page and `\"whole\"` for a body, so the two tasks can disagree about one claim - a backtick after a backslash among them - and this module grows back to the size its first two candidates were"
   - "a claim does not say where it is - the path and the line of its claimed output in the candidate, or the id of the commit whose body holds it - or carries a command or an output other than its code spans' text"
+  - "a file other than src/figure-claims.ts and test/unit/figure-claims.test.ts changes - src/figure-text.ts, which is RT-28's, among them"
 
 acceptance:
   - type: command
@@ -50,20 +66,32 @@ acceptance:
       claimed output's. It reads through git with an argument vector, in
       `cwd`, and never from the working tree: the lines the range - the
       merge base of `base` and `candidate` to `candidate` - adds to files
-      whose names end in `.md`, with the paragraphs that hold them, and the
-      body of every commit in `base..candidate`.
+      whose names end in `.md`, and the body of every commit in
+      `base..candidate`.
   - type: behavior
     statement: >
-      A claim is a code span whose text begins with `git ` and is followed,
-      later in the same block, by the word `printed`, one or more spaces,
-      and a second code span: the claimed output. The command of the claim
-      is the nearest such code span before that word. A block is one
-      paragraph of a page - the lines between two blank lines, or between a
-      blank line and the start or the end of the page - or the whole body of
-      one commit. A page's claim is read when the line that
-      holds its claimed output is a line the range adds. A code span is read
-      as CommonMark reads one: a run of backticks up to the next run of the
-      same length, its line breaks read as spaces.
+      The claims of a text are RT-28's to read: the module imports
+      `claimsInText` from src/figure-text.ts and calls it with a page's
+      whole text in the candidate and `"paragraphs"`, and with a commit's
+      body and `"whole"`, and holds no reader of code spans, of the word
+      `printed` or of paragraphs of its own. A page's claim is read when its
+      `line` is a line
+      the range adds to that page, and is answered with `where` set to the
+      page's path in the candidate, a colon and that line; a body's claims
+      are answered with `where` set to the commit's full id.
+  - type: behavior
+    statement: >
+      The lines a range adds to a page are found by comparing the merge
+      base with the candidate through git with rename detection, as
+      `git diff -M` pairs files at git's default similarity. A page the
+      range adds has every line added. A page the range modifies, and a
+      page the range renames - with no edit or with edits, and from a file
+      of any name - is compared with the file of the merge base it comes
+      from, and only the lines that comparison adds count; a page git does
+      not pair with a file of the merge base is a page the range adds. So a
+      page the range only renames adds no claim, a renamed page with edits
+      adds only the claims whose output lines the edits added, and a claim
+      already present under the old path is not a claim of the range.
   - type: behavior
     statement: >
       It fails closed: a revision that names no commit yields a failure
@@ -76,12 +104,16 @@ acceptance:
       Tests build real throwaway repositories and drive a claim in a page
       the range adds, a claim whose command sits on a line the base held and
       whose output sits on a line the range adds, a claim whose output line
-      the base already held, a file whose name does not end in `.md`, a
-      claim in a commit body and one in a commit the base holds, a base that
-      is not an ancestor of the candidate, a working tree whose page differs
-      from the candidate's, a page whose name holds characters a shell would
-      act on, and a revision that names no commit, and assert the answer of
-      each. Nothing outside the two allowed paths changes.
+      the base already held, a page the range renames with no edit, a page
+      it renames and edits - adding a claim, and changing the output of a
+      claim it held - a page renamed from a file whose name does not end in
+      `.md`, a file whose name does not end in `.md`, a claim in a commit
+      body and one in a commit the base holds, a base that is not an
+      ancestor of the candidate, a working tree whose page differs from the
+      candidate's, a page whose name holds characters a shell would act on,
+      and a revision that names no commit, and assert the answer of each.
+      The rules of the text itself are RT-28's cases and are not repeated
+      here.
   - type: command
     command: 'f=~/.config/millwright/repo-truth/holdout/rt-21.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
     required: true
@@ -94,14 +126,22 @@ forbidden_paths:
   - factory/**
   - .github/**
   - README.md
+  - ROADMAP.md
   - LICENSE
   - package.json
   - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
   - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/figure-text.ts
+  - src/checks/**
+  - test/e2e/**
 
-dependencies: []
+dependencies: [RT-28]
 discovered_from: null
-resources: [repo-truth:git, repo-truth:diff]
+resources: [repo-truth:figure-claims]
 exclusive_resources: []
 
 risk:
