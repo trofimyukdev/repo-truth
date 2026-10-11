@@ -22,6 +22,7 @@ import { checkLargeBlobs } from "./large-blobs.js";
 import { checkLoweredThresholds } from "./lowered-thresholds.js";
 import { checkSnapshotRefreshes } from "./snapshot-refreshes.js";
 import { checkDependencySources } from "./dependency-sources.js";
+import { checkReplayedFigures } from "./replayed-figures.js";
 
 /** The repository a check runs in. */
 export interface Repository {
@@ -66,6 +67,7 @@ const OWN_ENTRIES: RegistryEntry[] = [
   entry("RT-14", checkLoweredThresholds),
   entry("RT-16", checkSnapshotRefreshes),
   entry("RT-18", checkDependencySources),
+  entry("RT-19", checkReplayedFigures),
 ];
 
 type CheckFunction = (options: { cwd: string; base: string; candidate: string }) => CheckRecord | Promise<CheckRecord>;
