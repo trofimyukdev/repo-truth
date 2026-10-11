@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { REGISTRY } from "../../src/registry.js";
-import { checkLoweredThresholds, THRESHOLD_SPELLINGS } from "../../src/lowered-thresholds.js";
+import { checkLoweredThresholds, THRESHOLD_SPELLINGS, type ThresholdSpelling } from "../../src/lowered-thresholds.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +23,9 @@ const HIGH = 80;
 const LOW = 70;
 const MID = 75;
 const TOP = 90;
+const FIRST_LINE = 1;
+const SECOND_LINE = 2;
+const FOURTH_LINE = 4;
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args as string[], { cwd, env: ENV });
@@ -43,8 +46,18 @@ async function commit(cwd: string, files: Record<string, string | null>, message
   return git(cwd, ["rev-parse", "HEAD"]);
 }
 
+/** Commit a symbolic link, replacing whatever the name held. */
+async function commitLink(cwd: string, name: string, target: string, message = "link"): Promise<string> {
+  await rm(join(cwd, name), { force: true });
+  await symlink(target, join(cwd, name));
+  await git(cwd, ["add", "-A"]);
+  await git(cwd, ["commit", "--quiet", "-m", message]);
+  return git(cwd, ["rev-parse", "HEAD"]);
+}
+
 describe("checkLoweredThresholds", () => {
   let repo: string;
+  const bare: string[] = [];
 
   beforeEach(async () => {
     repo = await mkdtemp(join(tmpdir(), "repo-truth-lowered-"));
@@ -53,7 +66,20 @@ describe("checkLoweredThresholds", () => {
 
   afterEach(async () => {
     await rm(repo, { recursive: true, force: true });
+    for (const dir of bare.splice(0)) {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
+
+  /** Run `body` while `entry` is appended to the spellings. */
+  async function withSpelling(entry: ThresholdSpelling, body: () => Promise<void>): Promise<void> {
+    THRESHOLD_SPELLINGS.push(entry);
+    try {
+      await body();
+    } finally {
+      THRESHOLD_SPELLINGS.splice(THRESHOLD_SPELLINGS.indexOf(entry), 1);
+    }
+  }
 
   /** Commit `before`, then `after`, and check the range between them. */
   async function run(
@@ -256,6 +282,258 @@ describe("checkLoweredThresholds", () => {
     const record = await checkLoweredThresholds({ cwd: join(repo, "missing"), base: "HEAD", candidate: "HEAD" });
     expect(record.status).toBe("fail");
     expect(record.evidence.length).toBeGreaterThan(0);
+  });
+
+  it("carries git's own complaint for a directory that is not a repository", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "repo-truth-lowered-bare-"));
+    bare.push(dir);
+    const record = await checkLoweredThresholds({ cwd: dir, base: "HEAD", candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    expect(record.findings).toEqual([]);
+    expect(record.evidence).toHaveLength(1);
+    const line = record.evidence[0] ?? "";
+    expect(line.startsWith('revision "HEAD" does not name a commit: fatal: not a git repository')).toBe(true);
+    expect(line).not.toContain("Command failed");
+    expect(line.endsWith("\\u{000a}")).toBe(false);  });
+
+  it("carries, after the revision, the message of the git command that refused it", async () => {
+    await commit(repo, { "a.txt": "1\n" });
+    const record = await checkLoweredThresholds({ cwd: repo, base: "no-such-rev", candidate: "HEAD" });
+    expect(record.name).toBe("RT-14");
+    expect(record.status).toBe("fail");
+    expect(record.findings).toEqual([]);
+    expect(record.evidence).toHaveLength(1);
+    const line = record.evidence[0] ?? "";
+    expect(line.startsWith('revision "no-such-rev" does not name a commit: ')).toBe(true);
+    expect(line).toContain("git rev-parse");
+    expect(line).toContain("no-such-rev^{commit}");
+    const later = await checkLoweredThresholds({ cwd: repo, base: "HEAD", candidate: "no-such-rev" });
+    expect(later.evidence).toHaveLength(1);
+    expect(later.evidence[0]?.startsWith('revision "no-such-rev" does not name a commit: ')).toBe(true);
+  });
+
+  it("escapes a refused revision that git was asked about", async () => {
+    await commit(repo, { "a.txt": "1\n" });
+    const record = await checkLoweredThresholds({ cwd: repo, base: "café", candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    expect(record.evidence[0]?.startsWith('revision "caf\\u{00e9}" does not name a commit: ')).toBe(true);
+  });
+
+  it("refuses an empty revision, or one that begins with a minus sign, before git runs", async () => {
+    await commit(repo, { "a.txt": "1\n" });
+    const refused = async (base: string, candidate: string) =>
+      (await checkLoweredThresholds({ cwd: repo, base, candidate })).evidence;
+    expect(await refused("", "HEAD")).toEqual(['revision "" does not name a commit']);
+    expect(await refused("HEAD", "")).toEqual(['revision "" does not name a commit']);
+    expect(await refused("-", "HEAD")).toEqual(['revision "-" does not name a commit']);
+    expect(await refused("--help", "HEAD")).toEqual(['revision "--help" does not name a commit']);
+    expect(await refused("HEAD", "-n")).toEqual(['revision "-n" does not name a commit']);
+    expect(await refused("-x", "")).toEqual(['revision "-x" does not name a commit']);
+    const record = await checkLoweredThresholds({ cwd: repo, base: "", candidate: "HEAD" });
+    expect(record.name).toBe("RT-14");
+    expect(record.status).toBe("fail");
+    expect(record.findings).toEqual([]);
+  });
+
+  it("refuses a revision that is not a string, naming what it was", async () => {
+    await commit(repo, { "a.txt": "1\n" });
+    const record = await checkLoweredThresholds({
+      cwd: repo,
+      base: undefined as unknown as string,
+      candidate: "HEAD",
+    });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual(['revision "undefined" does not name a commit']);
+  });
+
+  it("writes every character outside printable ASCII as a backslash and four hex digits, in a refused revision", async () => {
+    await commit(repo, { "a.txt": "1\n" });
+    const record = await checkLoweredThresholds({
+      cwd: repo,
+      base: "-a b~c\u001f\u007féĀ\u{1f600}\n\t\\",
+      candidate: "HEAD",
+    });
+    expect(record.evidence).toEqual([
+      'revision "-a b~c\\u{001f}\\u{007f}\\u{00e9}\\u{0100}\\u{1f600}\\u{000a}\\u{0009}\\" does not name a commit',
+    ]);
+  });
+
+  it("writes a finding's path the same way, leaving a space and a tilde as they are", async () => {
+    const path = "dé ~\u001f\u001b\u007f\t\u{1f600}/vitest.config.ts";
+    const record = await run({ [path]: vitest(HIGH) }, { [path]: vitest(LOW) });
+    expect(record.status).toBe("fail");
+    expect(record.findings[0]?.file).toBe(path);
+    expect(record.evidence).toHaveLength(1);
+    expect(
+      record.evidence[0]?.startsWith("d\\u{00e9} ~\\u{001f}\\u{001b}\\u{007f}\\u{0009}\\u{1f600}/vitest.config.ts:2: lowered"),
+    ).toBe(true);
+  });
+
+  it("writes a finding's text, a sanction's reason included, the same way", async () => {
+    const reason = "café \u001b[0m ~";
+    const record = await run(
+      { "vitest.config.ts": vitest(HIGH) },
+      { "vitest.config.ts": vitest(LOW) },
+      { sanctions: { [`threshold-lowered:vitest.config.ts:${SECOND_LINE}`]: reason } },
+    );
+    expect(record.status).toBe("pass");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]?.endsWith("sanctioned: caf\\u{00e9} \\u{001b}[0m ~")).toBe(true);
+    expect(record.findings[0]?.sanction).toBe(reason);
+  });
+
+  it("names both revisions when the two share no history", async () => {
+    await commit(repo, { "a.txt": "1\n" });
+    await git(repo, ["checkout", "--quiet", "--orphan", "other"]);
+    await commit(repo, { "b.txt": "2\n" });
+    const record = await checkLoweredThresholds({ cwd: repo, base: "main", candidate: "other" });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]?.startsWith('no merge base of "main" and "other": ')).toBe(true);
+  });
+
+  it("does not report a configuration file the range adds", async () => {
+    const record = await run(
+      { "a.txt": "1\n" },
+      { "vitest.config.ts": vitest(HIGH), "package.json": `{ "lines": ${LOW} }\n` },
+    );
+    expect(record.status).toBe("pass");
+    expect(record.findings).toEqual([]);
+    expect(record.evidence).toEqual(["no threshold lowered or removed"]);
+  });
+
+  it("reports a deleted file whose last line ends without a newline", async () => {
+    const record = await run({ "vitest.config.ts": `export default {\n  lines: ${HIGH}` }, { "vitest.config.ts": null });
+    expect(record.status).toBe("fail");
+    expect(record.findings).toHaveLength(1);
+    expect(record.findings[0]?.category).toBe("threshold-removed");
+    expect(record.findings[0]?.line).toBe(2);
+    expect(record.findings[0]?.oldValue).toBe(String(HIGH));
+    expect(record.findings[0]?.newValue).toBeNull();
+    expect(record.evidence[0]?.startsWith("vitest.config.ts:2: removed")).toBe(true);
+  });
+
+  it("reports a deleted file that is a single line without a newline", async () => {
+    const record = await run({ ".coveragerc": `fail_under = ${HIGH}` }, { ".coveragerc": null });
+    expect(record.status).toBe("fail");
+    expect(record.findings[0]?.id).toBe(`threshold-removed:.coveragerc:${FIRST_LINE}`);
+  });
+
+  it("never reports a deleted file that holds a NUL byte", async () => {
+    const record = await run(
+      { "vitest.config.ts": `export default {\n  lines: ${HIGH},\n};\n\0` },
+      { "vitest.config.ts": null },
+    );
+    expect(record.status).toBe("pass");
+    expect(record.findings).toEqual([]);
+    expect(record.evidence).toEqual(["no threshold lowered or removed"]);
+  });
+
+  it("never reads a symbolic link named like a configuration file", async () => {
+    const base = await commitLink(repo, "vitest.config.ts", `lines: ${HIGH}`);
+    const lowered = await commitLink(repo, "vitest.config.ts", `lines: ${LOW}`);
+    const first = await checkLoweredThresholds({ cwd: repo, base, candidate: lowered });
+    expect(first.status).toBe("pass");
+    expect(first.findings).toEqual([]);
+    const deleted = await commit(repo, { "vitest.config.ts": null });
+    const second = await checkLoweredThresholds({ cwd: repo, base: lowered, candidate: deleted });
+    expect(second.status).toBe("pass");
+    expect(second.findings).toEqual([]);
+    expect(second.evidence).toEqual(["no threshold lowered or removed"]);
+  });
+
+  it("does not pair a value the range adds with an unchanged one below it", async () => {
+    const record = await run(
+      { "vitest.config.ts": `export default {\n  lines: ${HIGH},\n};\n` },
+      { "vitest.config.ts": `export default {\n  lines: ${LOW},\n  lines: ${HIGH},\n};\n` },
+    );
+    expect(record.status).toBe("pass");
+    expect(record.findings).toEqual([]);
+    expect(record.evidence).toEqual(["no threshold lowered or removed"]);
+  });
+
+  it("reports a lowered value on the second line a hunk adds on that line", async () => {
+    const record = await run(
+      { "vitest.config.ts": `export default {\n  lines: ${HIGH},\n  branches: ${HIGH},\n};\n` },
+      { "vitest.config.ts": `export default {\n  note: 1,\n  lines: ${TOP},\n  branches: ${LOW},\n};\n` },
+    );
+    expect(record.status).toBe("fail");
+    expect(record.findings).toHaveLength(1);
+    expect(record.findings[0]?.id).toBe(`threshold-lowered:vitest.config.ts:${FOURTH_LINE}`);
+    expect(record.findings[0]?.key).toBe("branches");
+    expect(record.findings[0]?.line).toBe(4);
+    expect(record.evidence[0]?.startsWith("vitest.config.ts:4: lowered")).toBe(true);
+  });
+
+  it("reports each value a hunk removes on its own line in the base", async () => {
+    const record = await run(
+      { "vitest.config.ts": `export default {\n  lines: ${HIGH},\n  branches: ${MID},\n};\n` },
+      { "vitest.config.ts": "export default {\n};\n" },
+    );
+    expect(record.findings.map((finding) => `${finding.key}:${finding.line}`)).toEqual(["lines:2", "branches:3"]);
+    expect(record.findings.map((finding) => finding.oldValue)).toEqual([String(HIGH), String(MID)]);
+  });
+
+  it("applies an appended entry whose path expression carries the global flag to every path, each time", async () => {
+    const entry: ThresholdSpelling = {
+      name: "gate",
+      files: /^[a-z]+\.gate$/g,
+      pattern: /GATE=(?<value>\d+)/,
+      example: "GATE=80",
+    };
+    await withSpelling(entry, async () => {
+      const first = await run(
+        { "one.gate": `GATE=${HIGH}\n`, "two.gate": `GATE=${HIGH}\n` },
+        { "one.gate": `GATE=${LOW}\n`, "two.gate": `GATE=${LOW}\n` },
+      );
+      expect(first.status).toBe("fail");
+      expect(first.findings.map((finding) => finding.file).sort()).toEqual(["one.gate", "two.gate"]);
+      expect(first.findings.every((finding) => finding.category === "threshold-lowered")).toBe(true);
+      expect(first.findings.every((finding) => finding.key === null && finding.name === "gate")).toBe(true);
+      const second = await run(
+        { "one.gate": `GATE=${TOP}\n`, "two.gate": `GATE=${TOP}\n` },
+        { "one.gate": `GATE=${MID}\n`, "two.gate": `GATE=${MID}\n` },
+      );
+      expect(second.findings.map((finding) => finding.file).sort()).toEqual(["one.gate", "two.gate"]);
+      expect(second.findings.every((finding) => finding.category === "threshold-lowered")).toBe(true);
+    });
+  });
+
+  it("applies an appended entry whose line expression carries the global flag, and reads every match on a line", async () => {
+    const entry: ThresholdSpelling = {
+      name: "gate",
+      files: /^Makefile$/,
+      pattern: /GATE=(?<value>\d+)/g,
+      example: "GATE=80",
+    };
+    await withSpelling(entry, async () => {
+      const record = await run({ Makefile: `GATE=${HIGH} GATE=${TOP}\n` }, { Makefile: `GATE=${HIGH} GATE=${LOW}\n` });
+      expect(record.status).toBe("fail");
+      expect(record.findings).toHaveLength(1);
+      expect(record.findings[0]?.oldValue).toBe(String(TOP));
+      expect(record.findings[0]?.newValue).toBe(String(LOW));
+      expect(record.findings[0]?.line).toBe(1);
+    });
+  });
+
+  it("does not read a match whose value group is not a number as a setting", async () => {
+    const entry: ThresholdSpelling = {
+      name: "gate",
+      files: /^Makefile$/,
+      pattern: /GATE=(?<value>\w+)/,
+      example: "GATE=high",
+    };
+    await withSpelling(entry, async () => {
+      const gone = await run({ Makefile: "GATE=high\n" }, { Makefile: "other\n" });
+      expect(gone.status).toBe("pass");
+      expect(gone.findings).toEqual([]);
+      const endless = await run({ Makefile: "GATE=Infinity\n" }, { Makefile: `GATE=${LOW}\n` });
+      expect(endless.status).toBe("pass");
+      expect(endless.findings).toEqual([]);
+      const real = await run({ Makefile: `GATE=${HIGH}\n` }, { Makefile: "GATE=low\n" });
+      expect(real.status).toBe("fail");
+      expect(real.findings[0]?.category).toBe("threshold-removed");
+    });
   });
 
   it("is registered as RT-14", () => {
