@@ -1,0 +1,154 @@
+id: RT-26
+repo: repo-truth
+priority: 62
+milestone: M0
+title: Credentials - a line the range adds that holds a key, a token or a private key in a form only a real one has
+
+outcome: >
+  A credential committed once is published to every clone for good, and an
+  agent that pastes a working configuration into a fixture or a document
+  commits one without meaning to. This check reads the lines the range
+  adds, in every file git can read as text, and reports each line that
+  holds a credential in a form only a real one has - a private key block, a
+  cloud access key id, a code host or chat token, or a password, key or
+  token assigned a long quoted value - with the file, the line and the kind,
+  and never the text it matched, because a report that prints a credential
+  has published it a second time. A credential the base already held, a
+  line the range removes, a placeholder too short to be real and a binary
+  file say nothing. There is no sanction: the fix for a credential in the
+  history is to remove it and revoke it.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. It is written as one module of the check directory RT-22
+  builds, so it touches neither the registry nor the command. The factory
+  that builds this repository scans every line a change adds for the same
+  forms and refuses a change that holds one, so every credential-shaped
+  value in this task is put together at run time and none is ever written
+  out whole.
+
+measure:
+  - npx vitest run test/unit/credentials.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-26"))'
+
+not_done_if:
+  - "a line the range adds that holds one of the forms the acceptance names passes, in any file git can read as text"
+  - "a finding prints the text it matched, or any part of the line beyond the file, the line number and the kind, so the report publishes the credential again"
+  - "the check reads files whole rather than the lines the range adds, so a credential the base already holds fails every range after it, or a line the range removes is reported"
+  - "a placeholder, a short value, a variable name, an assignment whose value is not quoted, or a binary file is reported, so the check fires on ordinary edits and gets switched off"
+  - "the forms are written inside the matcher, with no exported list a consumer appends to"
+  - "a line of the change itself - the module, its tests, a fixture - holds a credential in one of those forms written out whole, so the factory's own scan of added lines refuses the change"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-26` does not run it alone after `npm run build`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/credentials.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-26"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/credentials.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-26`, and
+      `check(options)`, where `options` is `{ cwd, base, candidate }`, which
+      resolves to a `CheckRecord` (src/index.ts) named `RT-26`. It imports
+      nothing from src/registry.ts or src/cli.ts and only types from
+      src/index.ts. It reads the lines the range - the merge base of `base`
+      and `candidate` to `candidate` - adds to each file, with renames
+      detected, through git with an argument vector and never from the
+      working tree; a file whose content at the candidate holds a NUL byte
+      is binary and is not read.
+  - type: behavior
+    statement: >
+      It also exports `CREDENTIAL_SHAPES`, an array of `{ name, pattern }`:
+      `name` is the kind a finding names and `pattern` a regular expression
+      tested against each added line. The check reads the array each time it
+      runs, so an entry a consumer appends is applied. The list holds at
+      least: the first line of a private key block, five hyphens, `BEGIN`,
+      optional words in capitals, `PRIVATE KEY` and five hyphens; a cloud
+      access key id, `AKIA` or `ASIA` followed by sixteen capital letters or
+      digits as a word of its own; a code host token, one of `ghp_`, `gho_`,
+      `ghu_`, `ghs_` and `ghr_` followed by at least thirty letters or
+      digits, or `github_pat_` followed by at least thirty letters, digits or
+      underscores; a chat token, `xox`, one of the letters a, b, p, o, s and
+      r, a hyphen and at least ten letters, digits or hyphens; and an
+      assignment - one of the words `api_key`, `api-key`, `apikey`,
+      `secret_key`, `access_token`, `auth_token`, `oauth_token` and
+      `password`, in any case, then a colon or an equals sign, then a value
+      in single or double quotes of at least twenty characters none of which
+      is a quote or white space.
+  - type: behavior
+    statement: >
+      Each finding is one evidence line, `<file>:<line>: <kind>`, where the
+      file is the path in the candidate with every character outside
+      printable ASCII escaped, the line is the line in the candidate, and
+      the kind is the entry's `name`; a line that matches several entries is
+      one line per entry. The evidence holds nothing of the matched text.
+      The record fails when there is a finding, and then its evidence holds
+      the finding lines and nothing else; otherwise it passes with one
+      evidence line holding `no credential in the lines the range adds`.
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      Every credential-shaped value in the module, its tests and their
+      fixtures is put together at run time from parts - a prefix joined to
+      a repeated character, say - so that no line of the change holds one of
+      the forms above written out whole, and the module carries its forms
+      as regular expressions only, with no example values. Tests build real
+      throwaway repositories and drive each form the list must hold, a
+      credential the base already held on a line the range leaves alone, a
+      line the range removes, a placeholder value of a few characters, an
+      unquoted assignment, a binary file, a renamed file, a path that needs
+      escaping, an entry appended to `CREDENTIAL_SHAPES` and a revision that
+      names no commit, assert each record, and assert that no evidence line
+      holds the text a fixture planted; and one test runs `main` of
+      src/cli.ts with `check`, `--check RT-26`, `--no-fetch` and `--format
+      json` over a throwaway repository and asserts exactly one record,
+      `RT-26`. Nothing outside the two allowed paths changes.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-26.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/credentials.ts
+  - test/unit/credentials.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: [RT-22]
+discovered_from: null
+resources: [repo-truth:credentials]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

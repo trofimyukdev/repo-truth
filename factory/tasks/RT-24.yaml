@@ -1,0 +1,173 @@
+id: RT-24
+repo: repo-truth
+priority: 64
+milestone: M0
+title: Raised timeouts - a test or hook timeout the range raises, or adds to a file that already existed
+
+outcome: >
+  A test that has started to fail by running out of time passes again the
+  moment its timeout goes up, and the range that raised it looks like a
+  small configuration edit: `testTimeout` from five seconds to sixty, a
+  `}, 30000);` after a test that had none, a `jest.setTimeout` in a file
+  that never needed one. Sometimes that is right, and often it hides a test
+  that got slower for a reason somebody should look at. This check reads
+  the lines the range changes in test files and in the runner's
+  configuration, pairs each timeout the range removes with the one it adds
+  for the same setting, and reports a timeout that went up, or one added to
+  a file that already existed, with the file, the line, the setting and the
+  values - for a human to sanction or refuse. A lowered or unchanged
+  timeout, a line that only moved, and the timeouts of a file the range
+  adds say nothing.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. RT-04 left the raised timeout to a later task, as RT-14
+  took the lowered threshold and RT-16 the snapshot; this is that task. It
+  is the first check written as one module of the check directory RT-22
+  builds, so it touches neither the registry nor the command.
+
+measure:
+  - npx vitest run test/unit/raised-timeouts.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-24"))'
+
+not_done_if:
+  - "the check reads the files whole rather than the lines the range changes, so a long timeout the base already holds fails every range after it"
+  - "a raised value, or a timeout added to a file the merge base already holds, passes"
+  - "a lowered or equal value, a line that only moved, a file renamed with its values, the timeouts of a file the range adds, or a number on a line no entry of the list matches is reported, so the check fires on ordinary edits and gets switched off"
+  - "the spellings are written inside the matcher, with no exported list a consumer appends to, or the list misses one of the spellings the acceptance names"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, or a sanction is read from anywhere else"
+  - "a finding does not name the file, the line, the setting and the values, with every character outside printable ASCII escaped"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-24` does not run it alone after `npm run build`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/raised-timeouts.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-24"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/raised-timeouts.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-24`, and
+      `check(options)`, where `options` is `{ cwd, base, candidate,
+      sanctions? }`, which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-24` that also carries `findings`. It imports nothing from
+      src/registry.ts or src/cli.ts and only types from src/index.ts. It
+      reads the changes between the merge base of `base` and `candidate`
+      and `candidate`, with renames detected, and the messages of the
+      commits in `base..candidate`, through git with an argument vector and
+      never from the working tree.
+  - type: behavior
+    statement: >
+      It also exports `TIMEOUT_SPELLINGS`, an array of `{ name, files,
+      pattern, example }` in the form of RT-14's `THRESHOLD_SPELLINGS`:
+      `files` a regular expression tested against a changed path, `pattern`
+      one tested against each line the range removes or adds in such a
+      file, whose named group `value` holds the number and whose optional
+      group `key` names the setting, and `example` a line `pattern` matches.
+      The check reads the array each time it runs, so an entry a consumer
+      appends is applied. A test file here is a path with a directory named
+      `test`, `tests`, `__tests__` or `spec`, or a file name holding `.test.`
+      or `.spec.` before a JavaScript or TypeScript extension. The list
+      holds at least: the keys `testTimeout`, `hookTimeout` and
+      `teardownTimeout`, bare or in quotes, then a colon and a number, in a
+      vitest, vite or jest configuration file, in `package.json` and in a
+      test file; `jest.setTimeout(` and a number, in a test file; the key
+      `timeout`, bare or in quotes, then a colon and a number, and mocha's
+      `this.timeout(` and a number, in a test file; and a line of a test
+      file that closes a test's function and passes it a number, a closing
+      brace, an optional closing parenthesis, a comma, the number and a
+      closing parenthesis, as in `}, 30000);`.
+  - type: behavior
+    statement: >
+      Within one file - a file the range renames is one file - the values
+      an entry matches on the lines the range removes are paired, in order
+      of appearance, with the values the same entry and the same `key`
+      match on the lines it adds. A pair whose added value is higher is a
+      finding of category `timeout-raised`; an added value left without a
+      pair is a finding of category `timeout-added` when the merge base
+      holds the file, and nothing when the range adds it; a lowered value,
+      an equal one and a removed value left without a pair are not
+      findings.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`, imported
+      from src/weakened-tests.ts rather than written again - or by the
+      caller's `sanctions`, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `<category>:<file>:<line>`
+      with the line in the candidate, and `<category>:<file>` sanctions every
+      finding of that category in that file. Each finding is one evidence
+      line that opens with `<file>:<line>:`, with every character outside
+      printable ASCII escaped, and holds the word `raised` or `added`, the
+      entry's `name`, the key when there is one, the old value for a raised
+      one and the new value; a sanctioned finding's line also holds the
+      word `sanctioned` and the reason. The record fails while any finding
+      is unsanctioned and passes once every one is, listing them; with no
+      finding it passes with one evidence line holding `no timeout raised
+      or added`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error. Tests build real throwaway
+      repositories and drive each spelling the list must hold, a raised
+      value, a lowered one, an equal one, a moved line, a timeout added to
+      an existing file and one in a new file, a renamed file, a value the
+      base already held, an entry appended to `TIMEOUT_SPELLINGS`, a
+      sanction by line and by option, and a revision that names no commit,
+      and assert the record of each; and one test runs `main` of src/cli.ts
+      with `check`, `--check RT-24`, `--no-fetch` and `--format json` over a
+      throwaway repository and asserts exactly one record, `RT-24`. Each
+      fixture number sits in a constant declared on a line of its own whose
+      text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most. The module stays within about two
+      hundred and fifty lines. Nothing outside the two allowed paths
+      changes.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-24.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/raised-timeouts.ts
+  - test/unit/raised-timeouts.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/weakened-tests.ts
+  - src/lowered-thresholds.ts
+  - test/e2e/**
+
+dependencies: [RT-22]
+discovered_from: null
+resources: [repo-truth:timeouts]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

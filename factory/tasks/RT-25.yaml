@@ -1,0 +1,123 @@
+id: RT-25
+repo: repo-truth
+priority: 63
+milestone: M0
+title: Suite strength, lowered thresholds - tests that fail on the defects the mutation probe found unasserted in src/lowered-thresholds.ts
+
+outcome: >
+  The factory measures how strong a check's tests are by planting small
+  defects in its module and counting the ones no test notices. The lowered
+  thresholds check (RT-14) merged with such survivors: defects in how git's
+  own error reaches the evidence, in how a revision that cannot be a commit
+  is refused before git runs, in how text is escaped, in how a file that is
+  added, deleted, binary, a symbolic link or without a final newline is
+  read, in which line a value is reported on, and in how an entry a
+  consumer appends to the spellings is applied. Each one is a way the check
+  could break without a test saying so. This task adds the tests that say
+  so. It changes no source file.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. A change of tests alone gives the factory's mutation
+  probe nothing to mutate, so the holdout is what shows these tests are
+  strong: it plants the defects the probe recorded as surviving into the
+  module and demands that the suite turn red on each.
+
+measure:
+  - npx vitest run test/unit/lowered-thresholds.test.ts
+
+not_done_if:
+  - "a defect the mutation probe recorded as surviving in src/lowered-thresholds.ts at RT-14's merge, planted back into the module, still leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, or a fixture number moves on a line the gate reads as a bound, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/lowered-thresholds.test.ts changes - the module, another test, package.json - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/lowered-thresholds.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The task changes test/unit/lowered-thresholds.test.ts and nothing
+      else. Every test that file holds at the merge base stays, under its
+      title, with every assertion it makes; the new tests are added beside
+      them and call `checkLoweredThresholds` over real throwaway
+      repositories, asserting the records it returns.
+  - type: behavior
+    statement: >
+      The new tests pin these behaviors of `checkLoweredThresholds`, each by
+      an assertion that a defect in it would change. Errors: a directory
+      that is not a git repository yields a `fail` record whose evidence
+      carries git's own complaint and not node's wording of the failed
+      command; a revision that names no commit yields one whose evidence
+      carries, after the revision, the message of the git command that
+      refused it; and a revision that is empty, or that begins with a minus
+      sign, yields one whose evidence ends with exactly `revision
+      "<revision>" does not name a commit`, before git runs. Escaping: a
+      finding's path and a refused revision are printed with every
+      character outside printable ASCII written as a backslash, `u{`, four
+      lowercase hexadecimal digits and `}`, and a space and a tilde as they
+      are.
+  - type: behavior
+    statement: >
+      Reading: a configuration file the range adds, with a minimum in it,
+      is not a finding; one the range deletes is a `threshold-removed`
+      finding, also when its last line, holding the minimum, ends without a
+      newline; a deleted file that holds a NUL byte is binary and never a
+      finding; a symbolic link named like a configuration file is never
+      read as one; a minimum the range adds above an unchanged one is not
+      paired with it; and a lowered value on the second line a hunk adds is
+      reported on that line. Spellings: an entry appended to
+      `THRESHOLD_SPELLINGS` whose `files` expression carries the global flag
+      matches every path it should, each time, from the start of the path;
+      and a match whose `value` group holds something that is not a number
+      is not read as a setting.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, as the suite already does, so that a
+      later edit of a fixture is not read as a bound moved in a test; an
+      existing line of the suite is never edited to change a number.
+      Fixtures are built at run time in throwaway repositories under the
+      operating system's temporary directory and removed when the suite
+      ends, whether it passed or not; nothing is installed or fetched; and
+      no test reads src/lowered-thresholds.ts as text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-25.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/lowered-thresholds.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-thresholds]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

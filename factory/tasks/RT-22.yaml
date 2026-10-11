@@ -1,0 +1,136 @@
+id: RT-22
+repo: repo-truth
+priority: 66
+milestone: M0
+title: A check directory - every module of src/checks/ is a registered check, from the sources and from the build
+
+outcome: >
+  Every check this repository runs is one entry in one array in
+  src/registry.ts, and every task that adds a check edits that array. So
+  two such tasks can never be built side by side, and a check built while
+  another one waits for its measurement conflicts with it the moment the
+  other lands. This task gives the registry a second source: after its own
+  entries, it registers every module of one directory, src/checks/, which
+  the build turns into dist/checks/. A new check is then one module there
+  and its tests, and touches no file another task touches. The command
+  keeps reading one array, and a module that cannot be loaded is a failing
+  record that names it, never a check that quietly went missing.
+
+  Written on 2026-10-11 by the operator's word of that day, which took
+  this form of the registry for the checks that follow, under his rule of
+  2026-09-30 that every not_done_if line of a spec in this repository is
+  covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. If this task does not land, the checks that follow are
+  registered instead by one registration task at the end of each stage.
+
+measure:
+  - npx vitest run test/unit/registry.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!(Array.isArray(r.REGISTRY) && r.REGISTRY.length > 0))'
+
+not_done_if:
+  - "a module of the check directory is registered when the tests run from the sources but not by the built command, or the reverse, so `repo-truth check --check <its name>` is refused after `npm run build`"
+  - "the directory's entries reach `REGISTRY` after a module that imports it has read it, so the command, the Action and the tests each see a different registry"
+  - "a module that throws while it loads, that exports no check of the stated shape, or whose name is already registered, is left out of the registry or stops the command, instead of becoming an entry whose record fails and names the file and the cause"
+  - "a file that is not a check module - a declaration file, a source map, a test file, a file in a subdirectory, a file of another extension - is loaded as one"
+  - "the registry's own entries lose their order, or the directory's entries follow the order the file system lists them in rather than the order of their file names, so a default run's records change order from one machine to the next"
+  - "a repository with no check directory, or an empty one, fails or prints anything a repository without the feature would not"
+  - "`REGISTRY` stops being the one exported array the command reads and a test can replace in place, or src/cli.ts changes to read the directory itself"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/registry.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!(Array.isArray(r.REGISTRY) && r.REGISTRY.length > 0))'
+    required: true
+  - type: behavior
+    statement: >
+      `REGISTRY` (src/registry.ts) stays the one exported, mutable array of
+      `RegistryEntry` that `repo-truth check` reads, and its own entries keep
+      their order at its head. Before the module finishes loading - with a
+      top-level `await`, so that every module that imports `REGISTRY`, src/cli.ts
+      and src/index.ts among them, sees the whole list - it appends one entry
+      for each module of the check directory: `checks/` beside the registry's
+      own file, which is src/checks/ when the tests run from the sources and
+      dist/checks/ when the built command runs. src/cli.ts does not change.
+  - type: behavior
+    statement: >
+      src/registry.ts also exports `loadCheckDirectory(directory, extension)`,
+      which resolves to the entries for one directory and is what `REGISTRY`
+      is built with: `directory` is a `URL` of the directory and `extension`
+      the file extension of a module, `.ts` from the sources and `.js` from
+      the build, read from the registry's own `import.meta.url`. A module is
+      a file directly in the directory, never in a subdirectory, whose name
+      ends with `extension` and does not end with `.d.ts`, and holds neither
+      `.test.` nor `.spec.`; every other file is passed over. Modules are
+      loaded with `import()` and registered in the order of their file
+      names compared as strings, whatever order the file system lists them
+      in. A directory that does not exist yields no entry and no error.
+  - type: behavior
+    statement: >
+      A check module exports `name`, a non-empty string that becomes the
+      entry's name, and `check`, a function that takes `{ cwd, base,
+      candidate }` and returns a `CheckRecord` (src/index.ts) or a promise
+      of one. It imports nothing from src/registry.ts or src/cli.ts and
+      only types from src/index.ts, since a module the registry is still
+      waiting on cannot wait on the registry. A module that throws while it
+      loads, that lacks either export or has one of the wrong type, or whose
+      `name` an earlier entry already holds, becomes an entry named
+      `checks/` followed by its file name without the extension, whose run
+      returns a `fail` record with one evidence line naming the file and the
+      cause - so a default run fails and names it, and every other entry
+      still runs.
+  - type: behavior
+    statement: >
+      Tests write throwaway check directories under the operating system's
+      temporary directory at run time and drive `loadCheckDirectory` over
+      them: `.ts` modules as the sources hold them, and `.js` modules with
+      the `.d.ts` and `.js.map` files the build writes beside them; a module
+      that throws while it loads, one without `check`, one whose `name`
+      repeats another's, a test file, a file in a subdirectory, a file of
+      another extension, a missing directory, and names whose order differs
+      from the order the files were written in; and assert the names, the
+      order and every record. A test asserts that `REGISTRY` starts with the
+      registry's own entries in their order. No test writes into the
+      repository, and the directory src/checks/ is not created by this task.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-22.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/registry.ts
+  - test/unit/registry.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/cli.ts
+  - src/index.ts
+  - src/checks/**
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:registry]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

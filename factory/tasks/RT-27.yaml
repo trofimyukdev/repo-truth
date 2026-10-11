@@ -1,0 +1,119 @@
+id: RT-27
+repo: repo-truth
+priority: 61
+milestone: M0
+title: Suite strength, lockfile drift - tests that fail on the defects the mutation probe found unasserted in src/lockfile-drift.ts
+
+outcome: >
+  The factory measures how strong a check's tests are by planting small
+  defects in its module and counting the ones no test notices. The lockfile
+  drift check (RT-06) merged with such survivors: defects in how git's own
+  error reaches the evidence, in how a revision that cannot be a commit is
+  refused before git runs, in how a revision is escaped, in what counts as
+  a lockfile or a manifest at the root, in how an array of a dependency
+  field is compared, and in what a manifest or a lockfile that one end of
+  the range does not hold means. Each one is a way the check could break
+  without a test saying so. This task adds the tests that say so. It
+  changes no source file.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. A change of tests alone gives the factory's mutation
+  probe nothing to mutate, so the holdout is what shows these tests are
+  strong: it plants the defects the probe recorded as surviving into the
+  module and demands that the suite turn red on each.
+
+measure:
+  - npx vitest run test/unit/lockfile-drift.test.ts
+
+not_done_if:
+  - "a defect the mutation probe recorded as surviving in src/lockfile-drift.ts at RT-06's merge, planted back into the module, still leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/lockfile-drift.test.ts changes - the module, another test, package.json - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/lockfile-drift.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The task changes test/unit/lockfile-drift.test.ts and nothing else.
+      Every test that file holds at the merge base stays, under its title,
+      with every assertion it makes; the new tests are added beside them and
+      call `checkLockfileDrift` over real throwaway repositories, asserting
+      the records it returns.
+  - type: behavior
+    statement: >
+      The new tests pin these behaviors of `checkLockfileDrift`, each by an
+      assertion that a defect in it would change. Errors: a directory that
+      is not a git repository yields a `fail` record whose evidence carries
+      git's own complaint and not node's wording of the failed command; a
+      revision that names no commit yields one whose evidence carries,
+      after the revision, the message of the git command that refused it;
+      and a revision that is empty, or that begins with a minus sign, yields
+      one whose evidence reads exactly `revision "<revision>" names no
+      commit`, before git runs. Escaping: a revision in the evidence is
+      printed with every character outside printable ASCII written as a
+      backslash, `u{`, four lowercase hexadecimal digits and `}`, and a
+      space and a tilde as they are.
+  - type: behavior
+    statement: >
+      Reading: a directory at the root named like a lockfile is not a
+      lockfile; reordering the members of an array in a dependency field,
+      such as `bundleDependencies`, is not a change, and adding a member to
+      one is; a manifest whose JSON is an array, a string or `null` yields a
+      `fail` record whose evidence says it is not a JSON object; a range
+      that adds the manifest and a lockfile together is judged and passes,
+      and is not skipped for want of a manifest; and a range that adds a
+      lockfile beside a changed dependency field passes with both named,
+      and is not skipped for want of a lockfile.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, so that a later edit of a fixture is
+      not read as a bound moved in a test. Fixtures are built at run time in
+      throwaway repositories under the operating system's temporary
+      directory and removed when the suite ends, whether it passed or not;
+      every manifest a test writes is written into such a repository and
+      never committed to this one; nothing is installed or fetched; and no
+      test reads src/lockfile-drift.ts as text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-27.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/lockfile-drift.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-lockfile]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
