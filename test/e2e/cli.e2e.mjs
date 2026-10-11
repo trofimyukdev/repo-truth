@@ -7,7 +7,7 @@
  * Not collected by `npx vitest run`: the name matches no vitest pattern.
  */
 
-import { after, before, describe, test } from "node:test";
+import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -27,10 +27,31 @@ const GIT_ENV = {
   GIT_TERMINAL_PROMPT: "0",
 };
 
+const MISSING_BUILD = "does not exist: the build step has not run - run `npm run build` first";
+
 let scratch;
 let names = [];
 let counter = 0;
 let ran = 0;
+
+/** The names in the built REGISTRY, or a failure naming the build as the missing step. */
+async function registered() {
+  assert.ok(existsSync(BIN), "the built file " + BIN + " " + MISSING_BUILD);
+  assert.ok(existsSync(REGISTRY_FILE), "the built registry " + REGISTRY_FILE + " " + MISSING_BUILD);
+  if (names.length === 0) {
+    const { REGISTRY } = await import(pathToFileURL(REGISTRY_FILE).href);
+    names = REGISTRY.map((e) => e.name);
+  }
+  assert.ok(names.length > 0, "the built REGISTRY holds no check");
+  return names;
+}
+
+/** Every case begins here: the build is checked, then a scratch directory exists. */
+async function start() {
+  const all = await registered();
+  scratch ??= mkdtempSync(join(tmpdir(), "repo-truth-e2e-"));
+  return all;
+}
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -82,102 +103,113 @@ function assertAgrees(doc, result) {
   assert.equal(result.code, doc.exitCode);
 }
 
+/** One JSON document and nothing else on stdout. */
+function parseDocument(result) {
+  assert.ok(result.stdout.endsWith("\n"), "stdout ends with a newline");
+  return JSON.parse(result.stdout);
+}
+
 function assertRefused(result, mention) {
-  assert.equal(result.code, 2);
+  assert.equal(result.code, 2, "exit code " + result.code + ": " + result.stderr);
   assert.equal(result.stdout, "");
   assert.ok(result.stderr.includes(mention), "stderr names " + JSON.stringify(mention) + ": " + result.stderr);
 }
 
-before(async () => {
-  assert.ok(existsSync(BIN), "the built file " + BIN + " is missing: run `npm run build` first");
-  assert.ok(existsSync(REGISTRY_FILE), REGISTRY_FILE + " is missing: run `npm run build` first");
-  const { REGISTRY } = await import(pathToFileURL(REGISTRY_FILE).href);
-  names = REGISTRY.map((e) => e.name);
-  assert.ok(names.length > 0, "the built REGISTRY holds no check");
-  scratch = mkdtempSync(join(tmpdir(), "repo-truth-e2e-"));
-});
-
 after(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
+  scratch = undefined;
 });
 
 describe("repo-truth check, built", () => {
-  test("the bin field names a file that exists", () => {
-    assert.ok(existsSync(BIN), BIN + " is missing: run `npm run build` first");
+  test("the bin field names a file that exists", async () => {
+    await start();
+    assert.ok(BIN.endsWith(".js"), BIN + " is a script");
   });
 
-  test("a default run answers 0 or 1 with one record per registered check, in order", () => {
+  test("a default run answers 0 or 1 with one record per registered check, in order", async () => {
+    const all = await start();
     const { dir, base, candidate } = makeRepo();
-    const result = run(dir, "--base", base, "--candidate", candidate, "--format", "json", "--no-fetch");
+    const result = run(dir, "--base", base, "--candidate", candidate, "--format", "json");
     assert.ok(result.code === 0 || result.code === 1, "exit code " + result.code + ": " + result.stderr);
-    const doc = JSON.parse(result.stdout);
-    assert.deepEqual(doc.records.map((r) => r.name), names);
+    const doc = parseDocument(result);
+    assert.deepEqual(doc.records.map((r) => r.name), all);
     assert.equal(doc.base, base);
     assert.equal(doc.candidate, candidate);
     assertAgrees(doc, result);
   });
 
-  test("a text run ends with a verdict line that agrees with the exit code", () => {
+  test("a text run ends with a verdict line that agrees with the exit code", async () => {
+    const all = await start();
     const { dir, base, candidate } = makeRepo();
-    const result = run(dir, "--base", base, "--candidate", candidate, "--no-fetch");
+    const result = run(dir, "--base", base, "--candidate", candidate);
     assert.ok(result.code === 0 || result.code === 1, "exit code " + result.code + ": " + result.stderr);
     const last = result.stdout.trimEnd().split("\n").pop();
     assert.equal(last, result.code === 0 ? "repo-truth: all checks passed" : "repo-truth: at least one check failed");
-    for (const name of names) assert.ok(result.stdout.includes(name), name + " appears in the output");
+    for (const name of all) assert.ok(result.stdout.includes(name), name + " appears in the output");
   });
 
-  test("each registered name given to --check runs that check alone", () => {
+  test("each registered name given to --check runs that check alone", async () => {
+    const all = await start();
     const { dir, base, candidate } = makeRepo();
-    for (const name of names) {
-      const result = run(dir, "--base", base, "--candidate", candidate, "--check", name, "--format", "json", "--no-fetch");
+    for (const name of all) {
+      const result = run(dir, "--base", base, "--candidate", candidate, "--check", name, "--format", "json");
       assert.ok(result.code === 0 || result.code === 1, name + ": exit code " + result.code + ": " + result.stderr);
-      const doc = JSON.parse(result.stdout);
+      const doc = parseDocument(result);
       assert.deepEqual(doc.records.map((r) => r.name), [name]);
       assertAgrees(doc, result);
     }
   });
 
-  test("a commit message outside printable ASCII exits 1 with a fail record", () => {
+  test("a commit message outside printable ASCII exits 1 with a fail record", async () => {
+    const all = await start();
     const { dir, base, candidate } = makeRepo("add a file — with a dash and café");
-    const result = run(dir, "--base", base, "--candidate", candidate, "--format", "json", "--no-fetch");
+    const result = run(dir, "--base", base, "--candidate", candidate, "--format", "json");
     assert.equal(result.code, 1, result.stderr);
-    const doc = JSON.parse(result.stdout);
+    const doc = parseDocument(result);
     assert.ok(doc.records.some((r) => r.status === "fail"), "at least one fail record");
-    assert.deepEqual(doc.records.map((r) => r.name), names);
+    assert.deepEqual(doc.records.map((r) => r.name), all);
     assertAgrees(doc, result);
   });
 
-  test("a revision that names no commit exits 2, stdout empty, the revision named", () => {
+  test("a revision that names no commit exits 2, stdout empty, the revision named", async () => {
+    await start();
     const { dir, base } = makeRepo();
     for (const format of [[], ["--format", "json"]]) {
       assertRefused(
-        run(dir, "--base", base, "--candidate", "no-such-revision-anywhere", "--no-fetch", ...format),
+        run(dir, "--base", base, "--candidate", "no-such-revision-anywhere", ...format),
         "no-such-revision-anywhere",
       );
       assertRefused(
-        run(dir, "--base", "no-such-base-anywhere", "--candidate", base, "--no-fetch", ...format),
+        run(dir, "--base", "no-such-base-anywhere", "--candidate", base, ...format),
         "no-such-base-anywhere",
       );
     }
   });
 
-  test("an unknown --check name exits 2, stdout empty, the name given", () => {
+  test("an unknown --check name exits 2, stdout empty, the name given", async () => {
+    await start();
     const { dir, base, candidate } = makeRepo();
-    assertRefused(
-      run(dir, "--base", base, "--candidate", candidate, "--check", "RT-no-such-check", "--format", "json", "--no-fetch"),
-      "RT-no-such-check",
-    );
+    for (const format of [[], ["--format", "json"]]) {
+      assertRefused(
+        run(dir, "--base", base, "--candidate", candidate, "--check", "RT-no-such-check", ...format),
+        "RT-no-such-check",
+      );
+    }
   });
 
-  test("an unknown option exits 2, stdout empty, the option named", () => {
+  test("an unknown option exits 2, stdout empty, the option named", async () => {
+    await start();
     const { dir, base, candidate } = makeRepo();
-    assertRefused(
-      run(dir, "--base", base, "--candidate", candidate, "--no-such-option", "--format", "json", "--no-fetch"),
-      "--no-such-option",
-    );
+    for (const format of [[], ["--format", "json"]]) {
+      assertRefused(
+        run(dir, "--base", base, "--candidate", candidate, "--no-such-option", ...format),
+        "--no-such-option",
+      );
+    }
   });
 
-  test("cases ran, under the operating system's temporary directory", () => {
+  test("cases ran, under the operating system's temporary directory", async () => {
+    await start();
     assert.ok(ran > 0, "no case ran the built file");
     assert.ok(scratch.startsWith(tmpdir()), "repositories live under os.tmpdir()");
   });
