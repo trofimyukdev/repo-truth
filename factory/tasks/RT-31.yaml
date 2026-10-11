@@ -1,0 +1,174 @@
+id: RT-31
+repo: repo-truth
+priority: 58
+milestone: M0
+title: Suppression directives - a comment the range adds that tells the type checker, the linter or the coverage tool not to look
+
+outcome: >
+  A line that no longer type-checks passes once a comment above it tells the
+  compiler to ignore it; a rule the change breaks passes once a comment
+  disables the linter around it; a branch no test reaches stops counting
+  against coverage once a comment says to ignore it. Each makes a gate pass
+  by telling it not to look, and each is one comment line in a diff. This
+  check reads the lines the range removes and adds in source files, pairs
+  each directive the range removes with one it adds in the same file, and
+  reports an added directive left without a pair, with the file, the line
+  and the directive - for a human to sanction or refuse. A directive the
+  base already holds, one that only moved within its file or with its file,
+  the directive's word where it is not a directive, and a file that is not
+  source say nothing.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. It is written as one module of the check directory RT-22
+  builds, so it touches neither the registry nor the command. This check
+  reads every line a range adds, its own change included, so every
+  directive in this task's module, tests and fixtures is put together at
+  run time from parts and none is ever written out whole: a change that
+  held one would be reported by the check it adds, and a reader of the
+  change could not tell a fixture from a directive the change really adds.
+
+measure:
+  - npx vitest run test/unit/suppressions.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-31"))'
+
+not_done_if:
+  - "a directive the acceptance names, added right after a comment opener on a line of a source file the range adds or changes, passes"
+  - "the check reads the files whole rather than the lines the range removes and adds, so a directive the base already holds fails every range after it"
+  - "a directive that only moved within its file, a file renamed with its directives, the directive's word where no comment opener comes right before it, a directive in a file that is not source, or a binary file is reported, so the check fires on ordinary edits and gets switched off"
+  - "the directives are written inside the matcher, with no exported list a consumer appends to, or the list misses one the acceptance names"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, or a sanction is read from anywhere else"
+  - "a finding does not name the file, the line and the directive, with every character outside printable ASCII escaped"
+  - "a line of the change itself - the module, its tests, a fixture - holds one of the directives written out whole right after a comment opener, so the check reports its own change"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-31` does not run it alone after `npm run build`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/suppressions.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-31"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/suppressions.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-31`, and
+      `check(options)`, where `options` is `{ cwd, base, candidate,
+      sanctions? }`, which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-31` that also carries `findings`. It imports nothing from
+      src/registry.ts or src/cli.ts and only types from src/index.ts. It
+      reads the changes between the merge base of `base` and `candidate`
+      and `candidate`, with renames detected, and the messages of the
+      commits in `base..candidate`, through git with an argument vector and
+      never from the working tree; a file whose content holds a NUL byte is
+      binary and is not read.
+  - type: behavior
+    statement: >
+      It also exports `SUPPRESSION_DIRECTIVES`, an array of `{ name, files,
+      pattern }`: `name` the directive a finding names, `files` a regular
+      expression tested against a changed path, and `pattern` one tested
+      against each line the range removes or adds in such a file. The check
+      reads the array each time it runs, so an entry a consumer appends is
+      applied. The list holds at least these, each in a file whose name ends
+      with `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` or `.cjs`, and
+      each only where it opens a comment - right after `//`, or after `/*`
+      and any further asterisks, with nothing but white space between: the
+      TypeScript compiler's `@ts-ignore`, `@ts-nocheck` and
+      `@ts-expect-error`; the linter's `eslint-disable`, alone or as
+      `eslint-disable-line` or `eslint-disable-next-line`; and the coverage
+      tools' `istanbul ignore`, `c8 ignore` and `v8 ignore`.
+  - type: behavior
+    statement: >
+      Within one file - a file the range renames is one file - the
+      directives an entry matches on the lines the range removes are paired,
+      in order of appearance, with the ones the same entry matches on the
+      lines it adds. An added directive left without a pair is a finding of
+      category `suppression-added`, in a file the range adds as in one the
+      merge base holds, and a line that holds the directives of several
+      entries is one finding for each; a removed directive left without a
+      pair is not a finding.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`, imported
+      from src/weakened-tests.ts rather than written again - or by the
+      caller's `sanctions`, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `suppression-added:<file>:<line>`
+      with the line in the candidate, and `suppression-added:<file>`
+      sanctions every finding in that file. Each finding is one evidence
+      line that opens with `<file>:<line>:`, with every character outside
+      printable ASCII escaped, and holds the word `added` and the entry's
+      `name`; a sanctioned finding's line also holds the word `sanctioned`
+      and the reason. The record fails while any finding is unsanctioned and
+      passes once every one is, listing them; with no finding it passes with
+      one evidence line holding `no suppression directive added`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error. Every directive in the
+      module, its tests and their fixtures is put together at run time from
+      parts - a comment opener joined to the directive's words, say - so
+      that no line of the module or of its tests holds one written out
+      whole right after a comment opener; the module carries its directives
+      as regular expressions only. Tests build real throwaway repositories and drive
+      each directive the list must hold, in a line comment and in a block
+      comment, a directive the base already holds, one moved within its
+      file, a file renamed with its directives, a file the range adds, the
+      directive's word in a comment that does not open with it, a directive
+      in a Markdown file, a binary file, a path that needs escaping, a
+      sanction by line, by file and by option, a sanction written in a file
+      rather than a commit message, an entry appended to
+      `SUPPRESSION_DIRECTIVES` and a revision that names no commit, and
+      assert the record of each; and one test runs `main` of src/cli.ts
+      with `check`, `--check RT-31`, `--no-fetch` and `--format json` over a
+      throwaway repository and asserts exactly one record, `RT-31`. Each
+      fixture number sits in a constant declared on a line of its own whose
+      text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most. The module stays within about two
+      hundred and fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-31.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/suppressions.ts
+  - test/unit/suppressions.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/weakened-tests.ts
+  - test/e2e/**
+
+dependencies: [RT-22]
+discovered_from: null
+resources: [repo-truth:suppressions]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

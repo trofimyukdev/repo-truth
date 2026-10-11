@@ -1,0 +1,147 @@
+id: RT-29
+repo: repo-truth
+priority: 60
+milestone: M0
+title: Autosquash leftovers - a commit of the range whose subject begins with fixup!, squash! or amend!
+
+outcome: >
+  `git commit --fixup`, `--squash` and `--fixup=amend:` write a commit whose
+  subject begins with `fixup! `, `squash! ` or `amend! `: a note that the
+  commit is to be folded into an earlier one by `git rebase --autosquash`
+  before the branch lands. A range that still holds one lands the note
+  instead - a correction beside the commit it corrects, under a subject that
+  describes no change of its own - and the hygiene of a range's subjects is
+  one of the gates an autonomous factory runs before it merges. This check
+  reads the subject of every commit in the range as git itself reads it for
+  the autosquash, and reports each commit whose subject begins with one of
+  those prefixes, with the commit and the subject. A subject that holds the
+  word further on, a body line and a commit the base already holds say
+  nothing. There is no sanction: the fix is to squash the commits before the
+  range lands, and a repository that squashes every pull request when it
+  merges it does not run this check.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. It is written as one module of the check directory RT-22
+  builds, so it touches neither the registry nor the command.
+
+measure:
+  - npx vitest run test/unit/autosquash.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-29"))'
+
+not_done_if:
+  - "a commit of the range whose subject begins with one of the prefixes the acceptance names passes - a commit a merge brings in, a merge commit itself, or a subject that repeats the prefix included"
+  - "a subject that holds a prefix further on, a prefix in capitals, a prefix without the space after it, a body line that begins with a prefix, or a commit the base already holds is reported, so the check fires on ordinary history and gets switched off"
+  - "the subject is read other than as git reads it for the autosquash - the first line alone where the first paragraph runs on, or every line of the message - or is read from the working tree or a branch name rather than from the commits of `base..candidate` through git"
+  - "the prefixes are written inside the matcher, with no exported list a consumer appends to"
+  - "a finding does not name the commit and its subject, or prints a character outside printable ASCII as it is"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-29` does not run it alone after `npm run build`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/autosquash.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-29"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/autosquash.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-29`, and
+      `check(options)`, where `options` is `{ cwd, base, candidate }`, which
+      resolves to a `CheckRecord` (src/index.ts) named `RT-29`. It imports
+      nothing from src/registry.ts or src/cli.ts and only types from
+      src/index.ts. It reads the commits of `base..candidate` - every commit
+      the candidate reaches and the base does not, a merge commit and the
+      commits a merge brings in among them - and the subject of each as
+      `git log --format=%s` prints it, the lines of the message's first
+      paragraph joined by spaces, through git with an argument vector and
+      never from the working tree.
+  - type: behavior
+    statement: >
+      It also exports `AUTOSQUASH_PREFIXES`, an array of strings holding at
+      least `fixup! `, `squash! ` and `amend! ` - a word, an exclamation
+      mark and one space each, the prefixes git's autosquash reads. The
+      check reads the array each time it runs, so an entry a consumer
+      appends is applied. A commit is a finding when its subject begins
+      with one of the entries, compared character for character: a prefix
+      in capitals, a prefix without its space and a prefix further on in
+      the subject are not findings, and a subject that repeats a prefix,
+      as in `fixup! fixup! `, is one finding.
+  - type: behavior
+    statement: >
+      Each finding is one evidence line: the first twelve characters of the
+      commit's id, a space, and the subject with every character outside
+      printable ASCII written as a backslash, `u{`, its code point in
+      lowercase hexadecimal padded with zeros to at least four digits, and
+      `}`; one line per
+      commit, a parent before its children. The record fails when there is
+      a finding, and its evidence then holds the finding lines and nothing
+      else; otherwise it passes with one evidence line holding `no
+      autosquash subject in the range`. The check fails closed: a revision
+      that names no commit yields a `fail` record whose evidence names that
+      revision, and any other git invocation that fails yields one whose
+      evidence names the cause - never a `pass`, and never a thrown error.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories and drive each prefix the list
+      must hold, a subject that repeats a prefix, a commit a merge brings
+      in, a merge commit whose own subject begins with a prefix, a subject
+      that holds a prefix further on, a prefix in capitals, a prefix without
+      its space, a message whose first line is ordinary and whose second
+      line, with no blank line between them, begins with a prefix, a body
+      line that begins with a prefix, a commit the base already holds, a
+      subject that needs escaping, an entry appended to
+      `AUTOSQUASH_PREFIXES` and a revision that names no commit, and assert
+      the record of each; and one test runs `main` of src/cli.ts with
+      `check`, `--check RT-29`, `--no-fetch` and `--format json` over a
+      throwaway repository and asserts exactly one record, `RT-29`.
+      Fixtures are built at run time in throwaway repositories under the
+      operating system's temporary directory and removed when the suite
+      ends; each fixture number sits in a constant declared on a line of its
+      own whose text holds none of the words threshold, coverage, minimum,
+      min, maximum, max, at least or at most. The module stays within about
+      two hundred and fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-29.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/autosquash.ts
+  - test/unit/autosquash.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: [RT-22]
+discovered_from: null
+resources: [repo-truth:autosquash]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

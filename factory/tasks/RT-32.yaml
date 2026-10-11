@@ -1,0 +1,162 @@
+id: RT-32
+repo: repo-truth
+priority: 57
+milestone: M0
+title: Action inputs - `checks` names the checks the Action runs and `format` the form it prints them in
+
+outcome: >
+  The Action (RT-08) runs every registered check over a pull request and
+  prints text, and a workflow can change neither: action.yml declares no
+  inputs (`grep -c '^inputs:' action.yml` printed `0` on 2026-10-11 at
+  b5bdee8). The command already has both halves. README.md says "`--check
+  <name>`, which may be repeated, runs only the named checks" and "`--format
+  json` prints one JSON document instead of the text", and its usage line
+  reads `[--check <name>]... [--format text|json]`. This task gives the
+  Action two inputs that reach the command as exactly those options:
+  `checks`, a list of check names, each passed as one `--check <name>`, with
+  every registered check run when it is empty; and `format`, passed as
+  `--format <format>`, `text` by default. An unknown name or format is the
+  command's to refuse, with the code README.md gives a bad invocation and
+  nothing on stdout.
+
+  An input is text a workflow controls, and a workflow can fill it from a
+  pull request's own title or branch name. So an input reaches the step
+  only through the step's environment and is never written into the script
+  the step runs, and the rule that turns the inputs into arguments lives in
+  src/action.ts, a program the step starts, where the tests and the
+  factory's mutation probe can reach it: a value is an argument, never code.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it.
+
+measure:
+  - npx vitest run test/unit/action.test.ts
+  - npm run build && node --input-type=module -e 'const a = await import("./dist/action.js"); process.exitCode = Number(typeof a.actionArguments !== "function")'
+
+not_done_if:
+  - "an input is written into a `run` script as a `${{ }}` expression, so a value a workflow passes is run as shell code"
+  - "an input value is split, expanded or run by a shell on its way to the command - a pattern matched against file names, a `$(` or a backtick run, a semicolon that starts a command - instead of reaching the command as the text it is"
+  - "a name in `checks` is not passed as one `--check <name>`, several names separated by white space or commas do not each select their check, or an empty `checks` runs fewer than every registered check"
+  - "`format` is not passed as `--format <format>`, its default is not `text`, or an unknown format is printed as text instead of refused by the command with its bad-invocation code"
+  - "the step stops passing `--target` with the pull request's base branch on `origin` and `--candidate` with its head commit, or the step that builds changes"
+  - "`dist/action.js` run as a program does not exit with the command's own code, prints anything the command does not, or never finishes; or it runs the command when it is imported as a module"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less"
+  - "a file other than action.yml, src/action.ts and test/unit/action.test.ts changes - src/cli.ts, README.md, package.json - so the inputs are not this task's alone"
+  - "action.yml is not valid YAML - a plain value holding a colon and a space, say - so the runner cannot load the Action at all"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const a = await import("./dist/action.js"); process.exitCode = Number(typeof a.actionArguments !== "function")'
+    required: true
+  - type: behavior
+    statement: >
+      action.yml is valid YAML, as the runner loads it, and declares
+      `inputs:` with two entries. `checks`: its
+      description says it is a list of check names separated by white space
+      or commas, each run as `--check <name>`, and that empty runs every
+      registered check; it is not required, and its default is the empty
+      string. `format`: its description names `text` and `json`; it is not
+      required, and its default is `text`. The step that builds runs
+      `npm ci && npm run build`. The step that runs the command passes
+      `check`, `--target` with the pull request's base branch on `origin`
+      and `--candidate` with its head commit, each read from the step's
+      `env`.
+  - type: behavior
+    statement: >
+      Each input reaches that step through one `env` entry whose value is
+      exactly `${{ inputs.checks }}` or `${{ inputs.format }}`, named
+      `REPO_TRUTH_CHECKS` and `REPO_TRUTH_FORMAT`, and no `run` script of
+      action.yml holds a `${{` expression. The step's script runs the built
+      `dist/action.js` with node, as `node <dist/action.js> check --target
+      <target> --candidate <candidate>`, each value a quoted variable of the
+      step's environment; the script itself reads neither
+      `REPO_TRUTH_CHECKS` nor `REPO_TRUTH_FORMAT`, which only the program
+      reads.
+  - type: behavior
+    statement: >
+      src/action.ts exports `actionArguments(argv, env)`, where `argv` is an
+      array of strings and `env` an object of strings such as `process.env`.
+      It returns a new array: `argv` as given; then `--check` and the name,
+      for each name in `env.REPO_TRUTH_CHECKS` split at white space and
+      commas, in their order, with empty names dropped; then `--format` and
+      `env.REPO_TRUTH_FORMAT` when that is set and not empty. It runs
+      nothing, matches no pattern against file names and leaves every name
+      as it is written, so a name holding `$(`, a backtick, a semicolon, a
+      quote or an asterisk is one argument, which the command refuses as an
+      unknown check.
+  - type: behavior
+    statement: >
+      When node runs the built `dist/action.js` as a program, it runs the
+      command - `main` of src/cli.ts - with `actionArguments` of its own
+      arguments and its environment, and exits with the code `main` resolves
+      to: 0, 1 or 2 as README.md states them, with nothing on stdout on 2.
+      Imported as a module, it runs nothing. src/cli.ts imports
+      src/action.ts, so src/action.ts reaches `main` only through an
+      `import()` it makes when it runs as a program, after its own module
+      has finished loading: a module that waits at its top level for the
+      command while the command waits for it never finishes.
+  - type: behavior
+    statement: >
+      Tests call `actionArguments` with no input, one name, names separated
+      by spaces, commas, tabs and newlines, a name holding shell characters,
+      an empty format, `json` and an unknown format, and assert the whole
+      array each returns; run `main` with the array `actionArguments`
+      returns over a throwaway repository, with the registry's entries
+      replaced as the suite already does, and assert that only the named
+      checks run and that `json` prints the document; and read action.yml as
+      text and assert the two inputs and their defaults, the two `env`
+      entries, that no `run` script holds `${{`, and that the step calls the
+      command with `check --target` and `--candidate`. Fixtures
+      are built at run time in throwaway repositories under the operating
+      system's temporary directory and removed when the suite ends; each
+      fixture number sits in a constant declared on a line of its own whose
+      text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-32.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - action.yml
+  - src/action.ts
+  - test/unit/action.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/checks/**
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:action]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

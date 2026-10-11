@@ -1,0 +1,115 @@
+id: RT-30
+repo: repo-truth
+priority: 59
+milestone: M0
+title: Suite strength, symlinks - tests that fail on the defects the mutation probe found unasserted in src/symlinks.ts
+
+outcome: >
+  The factory measures how strong a check's tests are by planting small
+  defects in its module and counting the ones no test notices. The symlinks
+  check (RT-11) merged with such survivors: defects in how git's own error
+  reaches the evidence, in how a revision that cannot be a commit is refused
+  before git runs, in how a path and a target are escaped, in how a link
+  whose path or target is not valid UTF-8 is read, and in how two commits
+  that share no history are named. Each one is a way the check could break
+  without a test saying so. This task adds the tests that say so. It changes
+  no source file.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. A change of tests alone gives the factory's mutation
+  probe nothing to mutate, so the holdout is what shows these tests are
+  strong: it plants the defects the probe recorded as surviving into the
+  module and demands that the suite turn red on each.
+
+measure:
+  - npx vitest run test/unit/symlinks.test.ts
+
+not_done_if:
+  - "a defect the mutation probe recorded as surviving in src/symlinks.ts at RT-11's merge, planted back into the module, still leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/symlinks.test.ts changes - the module, another test, package.json - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/symlinks.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The suite test/unit/symlinks.test.ts calls `checkSymlinks` over real
+      throwaway repositories and asserts the records it returns.
+  - type: behavior
+    statement: >
+      The suite pins these behaviors of `checkSymlinks`, each by an
+      assertion that a defect in it would change. Errors: a directory that
+      is not a git repository yields a `fail` record whose evidence carries
+      git's own complaint and not node's wording of the failed command; a
+      revision that names no commit yields one whose evidence carries,
+      after the revision and the words `names no commit:`, the message of
+      the git command that refused it, which names `rev-parse`; a revision
+      that is empty, or that begins with a minus sign, yields one whose
+      evidence reads exactly `revision "<revision>" names no commit`, before
+      git runs; and a base and a candidate that share no history yield one
+      whose evidence begins with `no merge base of `, the first twelve
+      characters of the base's commit id, ` and ` and the first twelve
+      characters of the candidate's.
+  - type: behavior
+    statement: >
+      Escaping: a link's path and its target are printed in the evidence
+      with every character outside printable ASCII written as a backslash,
+      `u{`, its code point in lowercase hexadecimal padded with zeros to at
+      least four digits, and `}`, and a space and a tilde as they are. Reading: a link whose target is not valid UTF-8 is
+      still read, its bytes taken one character each, and judged by the
+      rules - one that stays inside passes and one that points outside is a
+      finding naming the target escaped - and never yields a record that
+      could not run.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, so that a later edit of a fixture is
+      not read as a bound moved in a test. Fixtures are built at run time in
+      throwaway repositories under the operating system's temporary
+      directory and removed when the suite ends, whether it passed or not;
+      a git that fails is made by the repository the test builds, never by
+      a stub on the path; nothing is installed or fetched; and no test reads
+      src/symlinks.ts as text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-30.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/symlinks.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-symlinks]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

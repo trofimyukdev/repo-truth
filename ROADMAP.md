@@ -27,10 +27,12 @@ after it lands, with no merge by hand after the first task.
 - A check directory (RT-22): a new check becomes one module and its tests, so two check tasks no
   longer edit the same file.
 - New checks on that directory, starting with raised timeouts (RT-24) and credentials in added
-  lines (RT-26); then autosquash leftovers, suppression directives, changed ladder scripts and
-  lowered compiler strictness.
+  lines (RT-26); then autosquash leftovers (RT-29), suppression directives (RT-31), changed ladder
+  scripts (RT-33) and lowered compiler strictness (RT-34).
 - Suite strength: tests that fail on the defects the mutation probe found unasserted, starting with
-  large blobs (RT-23), lowered thresholds (RT-25) and lockfile drift (RT-27).
+  large blobs (RT-23), lowered thresholds (RT-25), lockfile drift (RT-27) and symlinks (RT-30).
+- Action inputs for the checks to run and the output format (RT-32), which reach the command
+  through the step's environment.
 
 Done when RT-21, RT-19 and RT-17 have each landed or been set aside with the reason; most of the
 stage's new tasks have landed; and the factory has run several passes with two builders at once.
@@ -50,10 +52,10 @@ passes over this README's own figures from the root commit.
 
 - Per-check options read from one configuration file (its form is a product decision, the
   maintainer's), handed to each check by the command.
-- A path-policy check, and Action inputs for the checks to run and the output format, with the
-  records written to the job summary.
+- A path-policy check, and the Action's records written to the job summary.
 
-Done when a range is checked with per-check options from one file and the Action runs with inputs.
+Done when a range is checked with per-check options from one file and the Action writes its records
+to the job summary.
 
 ## Stage 4 - breadth and strength
 

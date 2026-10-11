@@ -1,0 +1,193 @@
+id: RT-34
+repo: repo-truth
+priority: 55
+milestone: M0
+title: Compiler strictness lowered - a strict option of a tsconfig that the range turns off or removes
+
+outcome: >
+  `strict` in a tsconfig is one switch over a family of the TypeScript
+  compiler's checks, and each member can also be set on its own. A range
+  that turns `strict` off, removes it, or turns one member off beneath it
+  makes code type-check that did not, and the edit is one line in a
+  configuration file. This check reads every tsconfig the range adds,
+  deletes, changes or renames, at the root or below it, whole at the merge
+  base and at the candidate, as the compiler reads one - JSON with comments
+  and trailing commas - and reports each strict option that held its strict
+  value at the merge base and does not at the candidate, with the file, the
+  option and both values, and each change of `extends`, which can lower
+  every option at once from another file - for a human to sanction or
+  refuse. An option turned on, a tsconfig the range adds and a file the
+  range leaves alone say nothing; a file that cannot be read at either end
+  is a failure that names it.
+
+  Written on 2026-10-11 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. It is written as one module of the check directory RT-22
+  builds, so it touches neither the registry nor the command. The factory
+  that builds this repository guards this repository's own tsconfig files
+  as gate configuration, so this task changes neither of them and adds no
+  tsconfig file anywhere: every tsconfig its tests need is written at run
+  time into a throwaway repository.
+
+measure:
+  - npx vitest run test/unit/strictness.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-34"))'
+
+not_done_if:
+  - "a strict option that held its strict value at the merge base and does not at the candidate passes - one turned off, one removed, a member that loses `strict` beneath it, or `skipLibCheck` turned on - in a tsconfig at the root or below it, or in one the range deletes"
+  - "an option turned on, a member whose own value stays strict while `strict` changes, a tsconfig the range adds, a file renamed with its options as they were, or a change elsewhere in the file is reported, so the check fires on ordinary edits and gets switched off"
+  - "the file is read other than as the compiler reads a tsconfig - a comment, a trailing comma, or comment characters inside a string make a readable file unreadable - or is read from the working tree or the lines of the patch rather than whole at the merge base and at the candidate through git"
+  - "a file that cannot be read as a JSON object at either end is reported as a pass or passed over instead of a `fail` record naming it"
+  - "a change of `extends` passes unreported, or the check reads a file that `extends` names"
+  - "the options are written inside the matcher, with no exported list a consumer appends to, or the list misses one the acceptance names"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, or a sanction is read from anywhere else"
+  - "a finding does not name the file, the option and both values, with every character outside printable ASCII escaped"
+  - "the task changes this repository's tsconfig.json or tsconfig.build.json, or adds a tsconfig file anywhere in it"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-34` does not run it alone after `npm run build`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/strictness.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-34"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/strictness.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-34`, and
+      `check(options)`, where `options` is `{ cwd, base, candidate,
+      sanctions? }`, which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-34` that also carries `findings`. It imports nothing from
+      src/registry.ts or src/cli.ts and only types from src/index.ts. It
+      reads, through git with an argument vector and never from the working
+      tree, the paths that change between the merge base of `base` and
+      `candidate` and `candidate`, with renames detected; for each whose
+      file name is `tsconfig.json`, `jsconfig.json`, or begins with
+      `tsconfig.` and ends with `.json`, such as `tsconfig.build.json`, at
+      the root or below it, the whole file at the merge base and at the
+      candidate; and the messages of the commits in `base..candidate`.
+  - type: behavior
+    statement: >
+      A file is read as the compiler reads a tsconfig: JSON in which a `//`
+      comment, a `/* */` comment and a comma before a closing brace or
+      bracket are allowed, while the same characters inside a string are
+      part of the string, as in a path `"src/*"`. Its options are its own
+      `compilerOptions`; `extends` is not followed, and a change of its value
+      is a finding of category `extends-changed`. A file the range adds is
+      read only at the candidate and is not compared. A file the range
+      deletes sets no option at the candidate, so there each option takes
+      the value the rule below gives an option a file does not set, and
+      is judged by it. A file
+      that is not a JSON object at an end, or whose `compilerOptions` is not
+      an object, yields a `fail` record whose evidence names the file and
+      the end. A renamed file is read at its old path at the merge base and
+      at its new path at the candidate.
+  - type: behavior
+    statement: >
+      It also exports `STRICT_OPTIONS`, an array of `{ name, strict,
+      fromStrict }`: `name` an option of `compilerOptions`, `strict` the
+      boolean value that is the strict one, and `fromStrict` whether the
+      option takes the value of `strict` when the file does not set it. The
+      check reads the array each time it runs, so an entry a consumer
+      appends is applied. An option's value in a file is its own boolean
+      value when the file sets one; otherwise, for an entry with
+      `fromStrict`, the file's `strict` when the file sets that; otherwise
+      `false`. A finding of category `strictness-lowered` is an entry whose
+      value at the merge base is its strict value and whose value at the
+      candidate is not. The list holds at least `strict`; with `fromStrict`,
+      `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`,
+      `strictBindCallApply`, `strictPropertyInitialization`,
+      `strictBuiltinIteratorReturn`, `noImplicitThis`, `alwaysStrict` and
+      `useUnknownInCatchVariables`; without it, `noUncheckedIndexedAccess`,
+      `exactOptionalPropertyTypes`, `noImplicitOverride`,
+      `noImplicitReturns`, `noFallthroughCasesInSwitch` and
+      `noPropertyAccessFromIndexSignature`, each strict when `true`; and
+      `skipLibCheck`, strict when `false`.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`, imported
+      from src/weakened-tests.ts rather than written again - or by the
+      caller's `sanctions`, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `<category>:<file>:<option>`,
+      with `extends` as the option of an `extends-changed` finding, and
+      `<category>:<file>` sanctions every finding of that category in that
+      file. Each finding is one evidence line that opens with `<file>:`,
+      with every character outside printable ASCII escaped, and holds the
+      word `lowered` with the option and its values at the merge base and at
+      the candidate, or the words `extends changed` with both values in
+      double quotes; a sanctioned finding's line also holds the word
+      `sanctioned` and the reason. The record fails while any finding is
+      unsanctioned and passes once every one is, listing them; with no
+      finding it passes with one evidence line holding `no strict option
+      lowered`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error. Tests build real throwaway
+      repositories and drive `strict` turned off and removed; a member
+      turned off beneath `strict`; `strict` turned off while a member stays
+      set on its own; `skipLibCheck` turned on; an option turned on; a
+      tsconfig the range adds, one it deletes and one it renames as it was;
+      a file below the root and a `tsconfig.build.json`; comments, a
+      trailing comma and comment characters inside a string; a file that is
+      not JSON at the candidate; `extends` changed; a sanction by line, by
+      category and file and by option, and a sanction written in a file
+      rather than a commit message; an entry appended to `STRICT_OPTIONS`;
+      and a revision that names no commit, and assert the record of each;
+      and one test runs `main` of src/cli.ts with `check`, `--check RT-34`,
+      `--no-fetch` and `--format json` over a throwaway repository and
+      asserts exactly one record, `RT-34`. Every tsconfig a test needs is
+      written at run time into a throwaway repository under the operating
+      system's temporary directory, removed when the suite ends; each
+      fixture number sits in a constant declared on a line of its own whose
+      text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most. The module stays within about two
+      hundred and fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-34.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/strictness.ts
+  - test/unit/strictness.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/weakened-tests.ts
+  - test/e2e/**
+
+dependencies: [RT-22]
+discovered_from: null
+resources: [repo-truth:strictness]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
