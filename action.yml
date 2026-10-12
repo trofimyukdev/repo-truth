@@ -1,5 +1,14 @@
 name: repo-truth
 description: Run the repo-truth checks over the range a pull request actually is (merge base..head). Needs actions/checkout with fetch-depth 0.
+inputs:
+  checks:
+    description: "A list of check names separated by white space or commas, each run as --check <name>. Empty runs every registered check."
+    required: false
+    default: ""
+  format:
+    description: "The form the checks are printed in: text or json."
+    required: false
+    default: "text"
 runs:
   using: composite
   steps:
@@ -12,6 +21,8 @@ runs:
       env:
         REPO_TRUTH_TARGET: origin/${{ github.event.pull_request.base.ref }}
         REPO_TRUTH_CANDIDATE: ${{ github.event.pull_request.head.sha }}
-        REPO_TRUTH_BIN: ${{ github.action_path }}/dist/cli.js
+        REPO_TRUTH_BIN: ${{ github.action_path }}/dist/action.js
+        REPO_TRUTH_CHECKS: ${{ inputs.checks }}
+        REPO_TRUTH_FORMAT: ${{ inputs.format }}
       run: |
         exec node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"
