@@ -10,6 +10,10 @@ import { checkSymlinks } from "../../src/symlinks.js";
 
 const execFileAsync = promisify(execFile);
 
+const SHORT_ID_LENGTH = 12;
+const ASTRAL_CODE_POINT = 0x1f600;
+const ETHIOPIC_CODE_POINT = 0xabcd;
+
 const ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: "Test Author",
@@ -178,5 +182,119 @@ describe("checkSymlinks", () => {
     const record = await checkSymlinks({ cwd: join(repo, "does-not-exist"), base, candidate: "HEAD" });
     expect(record.status).toBe("fail");
     expect(record.evidence.length).toBeGreaterThan(0);
+  });
+
+  describe("errors and reading", () => {
+    const extra: string[] = [];
+
+    afterEach(async () => {
+      for (const dir of extra.splice(0)) {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    async function throwaway(): Promise<string> {
+      const dir = await mkdtemp(join(tmpdir(), "repo-truth-symlinks-extra-"));
+      extra.push(dir);
+      return dir;
+    }
+
+    async function rawLink(name: Buffer, target: Buffer): Promise<void> {
+      await symlink(target, Buffer.concat([Buffer.from(`${repo}/`), name]));
+    }
+
+    it("carries git's own complaint, not node's wording, outside a repository", async () => {
+      const dir = await throwaway();
+      const record = await checkSymlinks({ cwd: dir, base: "HEAD", candidate: "HEAD" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      const line = record.evidence[0] ?? "";
+      expect(line).toMatch(/^revision "HEAD" names no commit: fatal: not a git repository/);
+      expect(line).not.toContain("Command failed");
+      expect(line.endsWith("}")).toBe(false);    });
+
+    it("names the git command that refused a revision naming no commit", async () => {
+      const first = await checkSymlinks({ cwd: repo, base: "no-such-rev", candidate: "HEAD" });
+      expect(first.status).toBe("fail");
+      expect(first.evidence).toHaveLength(1);
+      expect(first.evidence[0]).toMatch(/^revision "no-such-rev" names no commit: .*rev-parse/);
+      const second = await checkSymlinks({ cwd: repo, base, candidate: "also-missing" });
+      expect(second.status).toBe("fail");
+      expect(second.evidence).toHaveLength(1);
+      expect(second.evidence[0]).toMatch(/^revision "also-missing" names no commit: .*rev-parse/);
+    });
+
+    it.each([
+      ["", "HEAD", 'revision "" names no commit'],
+      ["HEAD", "", 'revision "" names no commit'],
+      ["-", "HEAD", 'revision "-" names no commit'],
+      ["HEAD", "--output=x", 'revision "--output=x" names no commit'],
+      ["-x", "HEAD", 'revision "-x" names no commit'],
+    ])("refuses base %j and candidate %j before git runs", async (baseRev, candidateRev, expected) => {
+      const record = await checkSymlinks({ cwd: repo, base: baseRev, candidate: candidateRev });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([expected]);
+    });
+
+    it("names two commits that share no history by their short ids", async () => {
+      await git(repo, ["checkout", "--quiet", "--orphan", "unrelated"]);
+      await git(repo, ["rm", "-r", "-f", "--quiet", "."]);
+      await file(repo, "other.txt");
+      const candidate = await commitAll(repo);
+      const record = await checkSymlinks({ cwd: repo, base: "main", candidate: "unrelated" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      const line = record.evidence[0] ?? "";
+      const prefix = `no merge base of ${base.slice(0, SHORT_ID_LENGTH)} and ${candidate.slice(0, SHORT_ID_LENGTH)}`;
+      expect(line.startsWith(prefix)).toBe(true);
+      expect(line.slice(prefix.length)).not.toMatch(/^[0-9a-f]/);
+    });
+
+    it("prints a link's path and target with everything outside printable ASCII escaped", async () => {
+      const astral = String.fromCodePoint(ASTRAL_CODE_POINT);
+      const ethiopic = String.fromCodePoint(ETHIOPIC_CODE_POINT);
+      const name = `a b~é\u007f${astral}\u001f${ethiopic}\t`;
+      const target = `/ ~{}\\ÿĀ\u007f${astral}\u001f${ethiopic}\n`;
+      await link(repo, name, target);
+      const record = await run();
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([
+        'link "a b~\\u{00e9}\\u{007f}\\u{1f600}\\u{001f}\\u{abcd}\\u{0009}" -> ' +
+          '"/ ~{}\\\\u{00ff}\\u{0100}\\u{007f}\\u{1f600}\\u{001f}\\u{abcd}\\u{000a}" breaks rule [absolute]',
+      ]);
+    });
+
+    it("prints the range of a passing check with its revisions quoted", async () => {
+      await file(repo, "a.txt");
+      const candidate = await commitAll(repo);
+      const record = await checkSymlinks({ cwd: repo, base, candidate });
+      expect(record.evidence).toEqual([`0 link(s) added or changed in "${base}".."${candidate}" stay inside the repository`]);
+    });
+
+    it("reads a link whose target is not valid UTF-8 and judges it by the rules", async () => {
+      await rawLink(Buffer.from("fine"), Buffer.from([0x6f, 0x6b, 0x2f, 0xff, 0x2f, 0x2e, 0x2e, 0x2f, 0xe9]));
+      const record = await run();
+      expect(record.name).toBe("RT-11");
+      expect(record.status).toBe("pass");
+      expect(record.evidence[0]).toMatch(/^1 link\(s\) added or changed/);
+    });
+
+    it("names an outside target that is not valid UTF-8, escaped", async () => {
+      await rawLink(Buffer.from("away"), Buffer.from([0x2e, 0x2e, 0x2f, 0xe9, 0xff, 0xfe]));
+      await rawLink(Buffer.from("abs"), Buffer.from([0x2f, 0xc3, 0x28]));
+      const record = await run();
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([
+        'link "abs" -> "/\\u{00c3}(" breaks rule [absolute]',
+        'link "away" -> "../\\u{00e9}\\u{00ff}\\u{00fe}" breaks rule [outside]',
+      ]);
+    });
+
+    it("reads a link whose path is not valid UTF-8", async () => {
+      await rawLink(Buffer.from([0x62, 0xff, 0xe9]), Buffer.from("/etc/passwd"));
+      const record = await run();
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual(['link "b\\u{00ff}\\u{00e9}" -> "/etc/passwd" breaks rule [absolute]']);
+    });
   });
 });
