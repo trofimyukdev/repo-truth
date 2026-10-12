@@ -9,6 +9,8 @@
  */
 
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /** The range cannot be resolved; the command maps this to its bad-invocation code. */
 export class RangeResolutionError extends Error {}
@@ -68,4 +70,44 @@ export async function resolveMergeBase(cwd: string, target: string, candidate: s
     );
   }
   throw new RangeResolutionError(`could not compute the merge base of ${target} and ${candidate}: ${result.stderr}`);
+}
+
+/**
+ * The command's arguments for the Action: `argv` as given, then one
+ * `--check <name>` per name in `env.REPO_TRUTH_CHECKS` (split at white space and
+ * commas), then `--format <format>` when `env.REPO_TRUTH_FORMAT` is set. Nothing
+ * is run, expanded or matched: every name is one argument, as written.
+ */
+export function actionArguments(argv: readonly string[], env: Readonly<Record<string, string | undefined>>): string[] {
+  const out = [...argv];
+  for (const name of (env.REPO_TRUTH_CHECKS ?? "").split(/[\s,]+/)) {
+    if (name !== "") out.push("--check", name);
+  }
+  const format = env.REPO_TRUTH_FORMAT;
+  if (format !== undefined && format !== "") out.push("--format", format);
+  return out;
+}
+
+function isActionEntryPoint(): boolean {
+  const script = process.argv[1];
+  if (!script) return false;
+  try {
+    return realpathSync(script) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+// cli.ts imports this module, so `main` is reached only by a dynamic import
+// made after this module has finished loading.
+if (isActionEntryPoint()) {
+  void (async () => {
+    try {
+      const { main } = await import("./cli.js");
+      process.exitCode = await main(actionArguments(process.argv.slice(2), process.env));
+    } catch (error) {
+      process.stderr.write(`repo-truth: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 2;
+    }
+  })();
 }

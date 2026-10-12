@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { assertPullRequestEvent, RangeResolutionError, resolveMergeBase } from "../../src/action.js";
+import { actionArguments, assertPullRequestEvent, RangeResolutionError, resolveMergeBase } from "../../src/action.js";
 import { EXIT_BAD_INVOCATION, EXIT_CHECK_FAILED, EXIT_OK, main } from "../../src/cli.js";
 import type { CheckRecord } from "../../src/index.js";
 import { REGISTRY, type RegistryEntry } from "../../src/registry.js";
@@ -241,5 +241,123 @@ describe("action.yml", () => {
     expect(text).toContain("--candidate");
     expect(text).toContain("github.event.pull_request.head.sha");
     expect(text).toContain("origin/${{ github.event.pull_request.base.ref }}");
+  });
+
+  it("declares the two inputs with their defaults", () => {
+    const inputs = text.slice(text.indexOf("\ninputs:"), text.indexOf("\nruns:"));
+    const checks = inputs.slice(inputs.indexOf("  checks:"), inputs.indexOf("  format:"));
+    const format = inputs.slice(inputs.indexOf("  format:"));
+    expect(checks).toMatch(/white space or commas/);
+    expect(checks).toContain("--check <name>");
+    expect(checks).toMatch(/Empty runs every registered check/);
+    expect(checks).toMatch(/required: false/);
+    expect(checks).toMatch(/default: ""/);
+    expect(format).toContain("text");
+    expect(format).toContain("json");
+    expect(format).toMatch(/required: false/);
+    expect(format).toMatch(/default: "text"/);
+  });
+
+  it("hands each input to the step through one env entry and never into a script", () => {
+    expect(text).toMatch(/^ {8}REPO_TRUTH_CHECKS: \$\{\{ inputs\.checks \}\}$/m);
+    expect(text).toMatch(/^ {8}REPO_TRUTH_FORMAT: \$\{\{ inputs\.format \}\}$/m);
+    for (const line of text.split("\n").filter((l) => /^\s+run:/.test(l))) expect(line).not.toContain("${{");
+    const script = text.slice(text.indexOf("run: |"));
+    expect(script).toContain('node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"');
+    expect(script).not.toContain("REPO_TRUTH_CHECKS");
+    expect(script).not.toContain("REPO_TRUTH_FORMAT");
+    expect(text).toContain("/dist/action.js");
+    expect(text).toContain("npm ci && npm run build");
+  });
+});
+
+describe("actionArguments", () => {
+  const base = ["check", "--target", "origin/main", "--candidate", "abc"];
+
+  it("is argv as given with no input, and a new array", () => {
+    const out = actionArguments(base, {});
+    expect(out).toEqual(base);
+    expect(out).not.toBe(base);
+    expect(actionArguments(base, { REPO_TRUTH_CHECKS: "", REPO_TRUTH_FORMAT: "" })).toEqual(base);
+  });
+
+  it("passes one name as one --check", () => {
+    expect(actionArguments(base, { REPO_TRUTH_CHECKS: "A" })).toEqual([...base, "--check", "A"]);
+  });
+
+  it("splits at spaces, commas, tabs and newlines, dropping empty names, in order", () => {
+    expect(actionArguments(base, { REPO_TRUTH_CHECKS: "A B" })).toEqual([...base, "--check", "A", "--check", "B"]);
+    expect(actionArguments(base, { REPO_TRUTH_CHECKS: " A,,B ,\tC\nD\r\n,E " })).toEqual([
+      ...base,
+      ...["A", "B", "C", "D", "E"].flatMap((n) => ["--check", n]),
+    ]);
+  });
+
+  it("leaves shell characters as one argument each", () => {
+    expect(actionArguments([], { REPO_TRUTH_CHECKS: "$(id);x `id` 'q' *" })).toEqual([
+      "--check",
+      "$(id);x",
+      "--check",
+      "`id`",
+      "--check",
+      "'q'",
+      "--check",
+      "*",
+    ]);
+  });
+
+  it("passes a format when set and not empty, any value as written", () => {
+    expect(actionArguments(base, { REPO_TRUTH_FORMAT: "json" })).toEqual([...base, "--format", "json"]);
+    expect(actionArguments(base, { REPO_TRUTH_FORMAT: "yaml" })).toEqual([...base, "--format", "yaml"]);
+    expect(actionArguments(base, { REPO_TRUTH_CHECKS: "A", REPO_TRUTH_FORMAT: "text" })).toEqual([
+      ...base,
+      "--check",
+      "A",
+      "--format",
+      "text",
+    ]);
+  });
+});
+
+describe("main with actionArguments", () => {
+  let repo: string;
+  let head: string;
+
+  beforeAll(() => {
+    repo = newRepo();
+    commit(repo, "a.txt", "1\n", "fork");
+    git(repo, "checkout", "-q", "-b", "feature");
+    head = commit(repo, "f.txt", "f\n", "feature work");
+    git(repo, "checkout", "-q", "main");
+  });
+
+  const argv = () => ["check", "--no-fetch", "--target", "main", "--candidate", head];
+
+  it("runs only the named checks and prints the json document", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls), stub("B", "pass", calls), stub("C", "pass", calls));
+    const r = await run(actionArguments(argv(), { REPO_TRUTH_CHECKS: "C, A", REPO_TRUTH_FORMAT: "json" }), repo);
+    expect(r.code).toBe(EXIT_OK);
+    expect(calls.sort()).toEqual(["A", "C"]);
+    expect(JSON.parse(r.stdout).records.map((x: CheckRecord) => x.name).sort()).toEqual(["A", "C"]);
+  });
+
+  it("runs every check when checks is empty", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls), stub("B", "pass", calls));
+    const r = await run(actionArguments(argv(), { REPO_TRUTH_CHECKS: "", REPO_TRUTH_FORMAT: "text" }), repo);
+    expect(r.code).toBe(EXIT_OK);
+    expect(calls.sort()).toEqual(["A", "B"]);
+  });
+
+  it("refuses an unknown name or format with nothing on stdout", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    for (const env of [{ REPO_TRUTH_CHECKS: "$(id)" }, { REPO_TRUTH_FORMAT: "yaml" }]) {
+      const r = await run(actionArguments(argv(), env), repo);
+      expect(r.code).toBe(EXIT_BAD_INVOCATION);
+      expect(r.stdout).toBe("");
+    }
+    expect(calls).toEqual([]);
   });
 });
