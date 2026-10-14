@@ -7,7 +7,12 @@
  *   0  every check that ran passed or skipped
  *   1  at least one check failed
  *   2  bad invocation or unrunnable environment (unknown option, unknown check,
- *      a revision that names no commit, a failed fetch). Never a check's finding.
+ *      `--except` with `--check` or naming every check, a revision that names no
+ *      commit, a failed fetch). Never a check's finding.
+ *
+ * `repo-truth list` answers 0 after printing the registered names, and 2 for any
+ * argument but `--help` (which answers 0 with the usage). It writes nothing to stderr
+ * on 0 and runs no check and no git command.
  *
  * On exit 2 nothing is written to stdout and no check has run.
  */
@@ -35,7 +40,8 @@ export interface CliIo {
 }
 
 const USAGE =
-  "usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--format text|json] [--no-fetch]";
+  "usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--except <name>]... [--format text|json] [--no-fetch]\n" +
+  "       repo-truth list";
 
 class InvocationError extends Error {}
 
@@ -44,6 +50,8 @@ interface Parsed {
   target: string | undefined;
   candidate: string;
   checks: string[];
+  except: string[];
+  list: boolean;
   format: "text" | "json";
   fetch: boolean;
   help: boolean;
@@ -51,9 +59,17 @@ interface Parsed {
 
 function parseArgs(argv: readonly string[]): Parsed {
   const [command, ...rest] = argv;
-  const parsed: Parsed = { base: "", target: undefined, candidate: "", checks: [], format: "text", fetch: true, help: false };
+  const parsed: Parsed = { base: "", target: undefined, candidate: "", checks: [], except: [], list: false, format: "text", fetch: true, help: false };
   if (command === "--help" || command === "-h") {
     parsed.help = true;
+    return parsed;
+  }
+  if (command === "list") {
+    for (const arg of rest) {
+      if (arg === "--help" || arg === "-h") parsed.help = true;
+      else throw new InvocationError(`list takes no argument but --help: ${arg}`);
+    }
+    parsed.list = true;
     return parsed;
   }
   if (command !== "check") {
@@ -90,6 +106,9 @@ function parseArgs(argv: readonly string[]): Parsed {
       case "--check":
         parsed.checks.push(value());
         break;
+      case "--except":
+        parsed.except.push(value());
+        break;
       case "--format": {
         const format = value();
         if (format !== "text" && format !== "json") {
@@ -110,6 +129,9 @@ function parseArgs(argv: readonly string[]): Parsed {
     }
   }
   if (parsed.help) return parsed;
+  if (parsed.except.length > 0 && parsed.checks.length > 0) {
+    throw new InvocationError("--except and --check are exclusive: give one");
+  }
   if (base !== undefined && target !== undefined) {
     throw new InvocationError("--base and --target are exclusive: give one");
   }
@@ -200,12 +222,27 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
 
     // Read the registry when the command runs: it runs what the registry holds.
     const registry = [...REGISTRY];
+    if (parsed.list) {
+      out(registry.map((e) => escapeControl(e.name) + "\n").join(""));
+      return EXIT_OK;
+    }
     for (const name of parsed.checks) {
       if (!registry.some((e) => e.name === name)) {
         throw new InvocationError(`unknown check: ${name} (registered: ${registry.map((e) => e.name).join(", ")})`);
       }
     }
-    const selected = parsed.checks.length === 0 ? registry : registry.filter((e) => parsed.checks.includes(e.name));
+    for (const name of parsed.except) {
+      if (!registry.some((e) => e.name === name)) {
+        throw new InvocationError(`unknown check: ${name} (registered: ${registry.map((e) => e.name).join(", ")})`);
+      }
+    }
+    const selected =
+      parsed.checks.length > 0
+        ? registry.filter((e) => parsed.checks.includes(e.name))
+        : registry.filter((e) => !parsed.except.includes(e.name));
+    if (selected.length === 0 && parsed.except.length > 0) {
+      throw new InvocationError("--except names every registered check: no check is left to run");
+    }
 
     if (parsed.target !== undefined) assertPullRequestEvent((io.env ?? process.env).GITHUB_EVENT_NAME);
 
