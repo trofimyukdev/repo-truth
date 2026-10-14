@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { main } from "../../src/cli.js";
-import { check, name, SUPPRESSION_DIRECTIVES } from "../../src/checks/suppressions.js";
+import { check, name, SUPPRESSION_DIRECTIVES, type SuppressionDirective } from "../../src/checks/suppressions.js";
 import { SANCTION_KEY } from "../../src/weakened-tests.js";
 
 const execFileAsync = promisify(execFile);
@@ -42,6 +42,8 @@ const block = (words: string): string => `${BLOCK}* ${words} */\nlet x = 1;\n`;
 const PLAIN = "let x = 1;\n";
 const FIRST = 1;
 const THIRD = 3;
+const SECOND = 2;
+const FIFTH = 5;
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args as string[], { cwd, env: ENV });
@@ -71,7 +73,26 @@ describe("RT-31 suppression directives", () => {
 
   afterEach(async () => {
     await rm(repo, { recursive: true, force: true });
+    for (const dir of bareDirs.splice(0)) await rm(dir, { recursive: true, force: true });
   });
+
+  const bareDirs: string[] = [];
+
+  /** A directory that exists and is not a git repository. */
+  async function bare(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "repo-truth-suppressions-bare-"));
+    bareDirs.push(dir);
+    return dir;
+  }
+
+  async function withEntry(entry: SuppressionDirective, body: () => Promise<void>): Promise<void> {
+    SUPPRESSION_DIRECTIVES.push(entry);
+    try {
+      await body();
+    } finally {
+      SUPPRESSION_DIRECTIVES.splice(SUPPRESSION_DIRECTIVES.indexOf(entry), 1);
+    }
+  }
 
   async function run(
     before: Record<string, string | Buffer | null>,
@@ -204,6 +225,119 @@ describe("RT-31 suppression directives", () => {
     const record = await check({ cwd: join(repo, "does-not-exist"), base: "HEAD", candidate: "HEAD" });
     expect(record.status).toBe("fail");
     expect(record.evidence.length).toBeGreaterThan(0);
+  });
+
+  describe("errors", () => {
+    it("carries git's own complaint for a directory that is not a repository", async () => {
+      const record = await check({ cwd: await bare(), base: "HEAD", candidate: "HEAD" });
+      expect(record.status).toBe("fail");
+      expect(record.findings).toEqual([]);
+      expect(record.evidence).toHaveLength(1);
+      expect(record.evidence[0]).toMatch(/not a git repository/i);
+      expect(record.evidence[0]).not.toMatch(/Command failed/);
+    });
+
+    it("carries the refusing git command for a revision that names no commit", async () => {
+      await commit(repo, { "a.ts": PLAIN }, "base");
+      const asBase = await check({ cwd: repo, base: "no-such-base", candidate: "HEAD" });
+      expect(asBase.status).toBe("fail");
+      expect(asBase.evidence).toHaveLength(1);
+      expect(asBase.evidence[0]).toMatch(/^revision "no-such-base" does not name a commit: [\s\S]*rev-parse/);
+      const asCandidate = await check({ cwd: repo, base: "HEAD", candidate: "no-such-candidate" });
+      expect(asCandidate.status).toBe("fail");
+      expect(asCandidate.evidence[0]).toMatch(/^revision "no-such-candidate" does not name a commit: [\s\S]*rev-parse/);
+    });
+
+    it("refuses an empty revision or one that begins with a minus sign before git runs", async () => {
+      const cwd = await bare();
+      await commit(repo, { "a.ts": PLAIN }, "base");
+      for (const revision of ["", "-x", "--all"]) {
+        const asBase = await check({ cwd, base: revision, candidate: "HEAD" });
+        expect(asBase.status).toBe("fail");
+        expect(asBase.evidence).toEqual([`revision "${revision}" does not name a commit`]);
+        const asCandidate = await check({ cwd: repo, base: "HEAD", candidate: revision });
+        expect(asCandidate.status).toBe("fail");
+        expect(asCandidate.evidence).toEqual([`revision "${revision}" does not name a commit`]);
+      }
+    });
+  });
+
+  describe("escaping", () => {
+    it("writes a revision outside printable ASCII as a braced code point", async () => {
+      await commit(repo, { "a.ts": PLAIN }, "base");
+      const cases: [string, string][] = [
+        ["café", "caf\\u{00e9}"],
+        ["a\u0001b", "a\\u{0001}b"],
+        ["a\u001fb", "a\\u{001f}b"],
+        ["a\u007fb", "a\\u{007f}b"],
+        ["a\u{1F600}b", "a\\u{1f600}b"],
+        ["a b~c", "a b~c"],
+      ];
+      for (const [revision, shown] of cases) {
+        const record = await check({ cwd: repo, base: revision, candidate: "HEAD" });
+        expect(record.status).toBe("fail");
+        expect(record.evidence[0]?.startsWith(`revision "${shown}" does not name a commit: `)).toBe(true);
+      }
+    });
+
+    it("writes a path outside printable ASCII as a braced code point, and keeps a space and a tilde", async () => {
+      const record = await run({}, { "a b~é\u{1F600}.ts": line(TS_IGNORE) });
+      expect(record.evidence).toEqual(["a b~\\u{00e9}\\u{1f600}.ts:1: added @ts-ignore"]);
+    });
+
+    it("writes the text of a sanction outside printable ASCII the same way", async () => {
+      const sanctions = { [`suppression-added:a.ts:${FIRST}`]: "café" };
+      const record = await run({ "a.ts": PLAIN }, { "a.ts": line(TS_IGNORE) }, { sanctions });
+      expect(record.evidence).toEqual(["a.ts:1: added @ts-ignore - sanctioned: caf\\u{00e9}"]);
+    });
+  });
+
+  describe("reading the diff", () => {
+    const anchored = (): SuppressionDirective => ({ name: "anchored", files: /\.ts$/, pattern: new RegExp("^" + SLASHES + " custom-" + "skip") });
+    const everyLine = (): SuppressionDirective => ({ name: "every", files: /\.ts$/, pattern: /^/ });
+
+    it("pairs a directive rewritten in place with other words after it", async () => {
+      const record = await run({ "a.ts": line(`${TS_IGNORE} old words`) }, { "a.ts": line(`${TS_IGNORE} other words`) });
+      expect(record.status).toBe("pass");
+      expect(record.findings).toEqual([]);
+    });
+
+    it("counts a removed directive as removed and not as added", async () => {
+      const record = await run({ "a.ts": line(TS_IGNORE) }, { "a.ts": PLAIN });
+      expect(record.status).toBe("pass");
+      expect(record.findings).toEqual([]);
+    });
+
+    it("reports a directive added beside one rewritten in place", async () => {
+      const before = line(`${TS_IGNORE} old words`);
+      const record = await run({ "a.ts": before }, { "a.ts": `${line(`${TS_IGNORE} other words`)}${line(TS_IGNORE)}` });
+      expect(record.findings.map((f) => f.line)).toEqual([THIRD]);
+    });
+
+    it("matches each line as the file holds it, without the sign of the diff", async () => {
+      await withEntry(anchored(), async () => {
+        const added = await run({ "a.ts": PLAIN }, { "a.ts": `${PLAIN}${SLASHES} custom-skip\n` });
+        expect(added.findings.map((f) => [f.name, f.line])).toEqual([["anchored", SECOND]]);
+      });
+    });
+
+    it("pairs an anchored directive rewritten in place", async () => {
+      await withEntry(anchored(), async () => {
+        const record = await run({ "a.ts": `${SLASHES} custom-skip one\n` }, { "a.ts": `${SLASHES} custom-skip two\n` });
+        expect(record.status).toBe("pass");
+        expect(record.findings).toEqual([]);
+      });
+    });
+
+    it("reads only the lines of the hunks, each at its line number in the candidate", async () => {
+      await withEntry(everyLine(), async () => {
+        const record = await run({ "a.ts": "one\ntwo\nthree\n" }, { "a.ts": "one\nnew\ntwo\nthree\nlast\n" });
+        expect(record.findings.map((f) => [f.name, f.file, f.line])).toEqual([
+          ["every", "a.ts", SECOND],
+          ["every", "a.ts", FIFTH],
+        ]);
+      });
+    });
   });
 
   it("is the only record `repo-truth check --check RT-31` prints", async () => {
