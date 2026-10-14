@@ -340,3 +340,105 @@ describe("control characters in the human output", () => {
     expect(stderr).not.toMatch(/[^\x20-\x7e\n]/);
   });
 });
+
+describe("--except", () => {
+  const three = (calls: string[]) =>
+    useRegistry(stub("A", "pass", calls), stub("B", "pass", calls), stub("C", "pass", calls));
+
+  it("runs every check but the named one, in the registry's order", async () => {
+    const calls: string[] = [];
+    three(calls);
+    const result = await run([...range(), "--except", "B", "--format", "json"], repo);
+    expect(result.code).toBe(EXIT_OK);
+    expect(calls).toEqual(["A", "C"]);
+    expect(JSON.parse(result.stdout).records.map((r: CheckRecord) => r.name)).toEqual(["A", "C"]);
+  });
+
+  it("may repeat, be written --except=<name>, and a repeated name counts once", async () => {
+    const calls: string[] = [];
+    three(calls);
+    const result = await run([...range(), "--except", "C", "--except=A", "--except", "C"], repo);
+    expect(result.code).toBe(EXIT_OK);
+    expect(calls).toEqual(["B"]);
+  });
+
+  it("a name the registry does not hold is a bad invocation and nothing runs", async () => {
+    const calls: string[] = [];
+    three(calls);
+    const result = await run([...range(), "--except", "A", "--except", "NOPE"], repo);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("NOPE");
+    expect(calls).toEqual([]);
+  });
+
+  it("given with --check is a bad invocation naming both", async () => {
+    const calls: string[] = [];
+    three(calls);
+    const result = await run([...range(), "--except", "A", "--check", "B"], repo);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("--except");
+    expect(result.stderr).toContain("--check");
+    expect(calls).toEqual([]);
+  });
+
+  it("naming every entry is a bad invocation", async () => {
+    const calls: string[] = [];
+    three(calls);
+    const result = await run([...range(), "--except", "A", "--except", "B", "--except=C"], repo);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("no check is left to run");
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("list", () => {
+  it("prints the registered names, one to a line in order, and runs nothing", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls), stub("B", "fail", calls));
+    expect(await run(["list"], repo)).toEqual({ code: EXIT_OK, stdout: "A\nB\n", stderr: "" });
+    useRegistry(stub("A", "pass", calls), stub("B", "fail", calls), stub("ADDED", "pass", calls));
+    expect((await run(["list"], repo)).stdout).toBe("A\nB\nADDED\n");
+    expect(calls).toEqual([]);
+  });
+
+  it("escapes characters outside printable ASCII", async () => {
+    useRegistry(stub("x\u001b[2Jy\nz", "pass"));
+    expect((await run(["list"], repo)).stdout).toBe("x\\u{001b}[2Jy\\u{000a}z\n");
+  });
+
+  it("answers outside a git repository", async () => {
+    useRegistry(stub("A", "pass"));
+    expect(await run(["list"], root)).toEqual({ code: EXIT_OK, stdout: "A\n", stderr: "" });
+  });
+
+  it("followed by an argument is a bad invocation with the usage on stderr", async () => {
+    useRegistry(stub("A", "pass"));
+    for (const argv of [["list", "x"], ["list", "--check", "A"], ["list", "--help", "x"]]) {
+      const result = await run(argv, repo);
+      expect(result.code, argv.join(" ")).toBe(EXIT_BAD_INVOCATION);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("usage: repo-truth check");
+    }
+  });
+
+  it("--help prints the usage and exits 0", async () => {
+    const result = await run(["list", "--help"], repo);
+    expect(result.code).toBe(EXIT_OK);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("usage: repo-truth check");
+  });
+});
+
+describe("usage", () => {
+  it("names both forms, for --help and for a bad invocation", async () => {
+    for (const result of [await run(["--help"], repo), await run(["bogus"], repo)]) {
+      const text = result.stdout + result.stderr;
+      expect(text).toContain("[--except <name>]...");
+      expect(text).toContain("[--check <name>]...");
+      expect(text).toContain("repo-truth list");
+    }
+  });
+});

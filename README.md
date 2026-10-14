@@ -129,7 +129,8 @@ node dist/cli.js check --base no-such-rev --candidate fcf6d3b; echo "exit $?"
 
 ```text
 repo-truth: --base "no-such-rev" does not name a commit in this repository
-usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--format text|json] [--no-fetch]
+usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--except <name>]... [--format text|json] [--no-fetch]
+       repo-truth list
 exit 2
 ```
 
@@ -139,7 +140,11 @@ commits that reached the target after the branch forked are not charged to it. A
 missing merge base is a bad invocation - in a shallow checkout the message asks for
 `fetch-depth: 0` - and so is `--target` when `GITHUB_EVENT_NAME` names an event
 other than `pull_request` or `pull_request_target`.
-`--check <name>`, which may be repeated, runs only the named checks. `--format json`
+`--check <name>`, which may be repeated, runs only the named checks. `--except <name>`,
+which may be repeated and cannot be given with `--check`, runs every registered check
+but the named ones; a name the registry does not hold, or names that cover every check,
+is a bad invocation. `repo-truth list` prints the registered names, one to a line in
+the registry's order; it runs no check and needs no git repository. `--format json`
 prints one JSON document instead of the text: `"schema": "repo-truth.check/v1"`, the
 resolved `base` and `candidate`, `ok`, `exitCode` and the `records`. `--no-fetch`
 skips the `git fetch --all --quiet` the command runs before it resolves either
