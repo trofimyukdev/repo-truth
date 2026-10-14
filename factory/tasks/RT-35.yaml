@@ -1,0 +1,150 @@
+id: RT-35
+repo: repo-truth
+priority: 54
+milestone: M0
+title: Except and list - `--except <name>` runs every registered check but the named, and `repo-truth list` prints the registered names
+
+outcome: >
+  `repo-truth check` runs every check the registry holds, or with
+  `--check <name>` only the named ones. A ladder rung or a test suite that
+  wants every check but one has to write out every other name, and that
+  list goes stale each time a module lands in the check directory, which
+  is how most checks now arrive. This task adds the two things the second
+  stage of ROADMAP.md names for it: `--except <name>`, which may be
+  repeated, runs every registered check but the named ones; and a second
+  command, `repo-truth list`, prints the names the registry holds, one to
+  a line in its order, so a rung or a suite reads the names when it runs
+  instead of holding a copy of them. Both read the registry when the
+  command runs, as `--check` does, and neither changes the registry, a
+  check, the Action or anything `check` did before.
+
+  Written on 2026-10-14 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. The two are one task because both are made in the same
+  place: the command's argument reading, its usage line and its selection
+  of the checks to run, in src/cli.ts, and the suite of that file.
+
+measure:
+  - npx vitest run test/unit/cli.test.ts
+  - npm run build && node dist/cli.js list
+
+not_done_if:
+  - "`--except <name>` runs a check it names, leaves out a registered check it does not name, runs the checks out of the registry's order or runs one twice - given once, repeated, or written `--except=<name>`"
+  - "a name given to `--except` that the registry does not hold, `--except` given together with `--check`, or `--except` naming every registered check, runs a check or writes to stdout instead of exiting 2 with the reason on stderr"
+  - "`repo-truth list` prints anything but the name of every entry the registry holds when the command runs, one to a line in the registry's order, or exits other than 0, writes to stderr, needs a git repository, or runs a check"
+  - "`repo-truth list` followed by any argument but `--help` is not a bad invocation - exit 2, nothing on stdout, the usage on stderr - or `list --help` does not print the usage and exit 0"
+  - "the usage that `--help` prints and that a bad invocation writes does not name `--except <name>` and `repo-truth list`, or the EXIT CODES header of src/cli.ts does not say what `list` answers"
+  - "something `check` did before changes - `--check`, `--format`, `--no-fetch`, `--base`, `--target`, the records, the JSON document or an exit code"
+  - "a test test/unit/cli.test.ts holds at the merge base is deleted, renamed, skipped, focused or made to ask less"
+  - "the command holds a list of check names, or the change touches src/registry.ts, a module of src/checks/, src/index.ts, src/action.ts or action.yml"
+  - "README.md does not say what `--except <name>` does and what `repo-truth list` prints"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/cli.test.ts
+    required: true
+  - type: command
+    command: npm run build && node dist/cli.js list
+    required: true
+  - type: behavior
+    statement: >
+      `repo-truth check` takes `--except <name>`, which may be repeated and
+      may be written `--except=<name>`, as `--check` may. A run with it
+      runs every entry of the registry whose name is not among the names
+      given, in the registry's order and each once, and answers with a
+      record for each of them and for no other; an entry it names is not
+      run. The names are checked against the registry as it stands when
+      the command runs, before any git command, as the names of `--check`
+      are: a name the registry does not hold exits 2 with a message that
+      names it, as an unknown `--check` name does; `--except` given
+      together with `--check` exits 2 with a message that names both; and
+      `--except` that names every entry of the registry exits 2 with a
+      message saying no check is left to run. The same name given twice
+      is the same as given once.
+  - type: behavior
+    statement: >
+      `repo-truth list` prints the name of every entry the registry holds
+      when the command runs, one to a line in the registry's order, each
+      written with every character outside printable ASCII escaped as the
+      text form of `check` escapes it, and nothing else; it exits 0 and
+      writes nothing to stderr. It runs no check and no git command, so it
+      answers the same in a directory that is not a git repository.
+      `list --help` prints the usage and exits 0, as `check --help` does;
+      any other argument after `list` is a bad invocation: exit 2, nothing
+      on stdout, the reason and the usage on stderr.
+  - type: behavior
+    statement: >
+      The usage the command prints for `--help` and writes after the
+      reason of a bad invocation names both forms: `repo-truth check` with
+      `[--except <name>]...` beside `[--check <name>]...`, and `repo-truth
+      list`. The EXIT CODES header of src/cli.ts stays the one place the
+      exit codes are stated and says what `list` answers. README.md, where
+      it describes the options of `check`, says that `--except <name>`, which
+      may be repeated, runs every registered check but the named ones and
+      cannot be given with `--check`, and that `repo-truth list` prints the
+      registered names, one to a line.
+  - type: behavior
+    statement: >
+      `--check`, `--format`, `--no-fetch`, `--base` and `--target` keep the
+      meaning the usage and README.md give them. The command holds no list
+      of check names; it reads `REGISTRY` from src/registry.ts when it
+      runs.
+  - type: behavior
+    statement: >
+      test/unit/cli.test.ts drives `main` over registries of stub entries,
+      as its existing cases do, and asserts the exit code, stdout, stderr
+      and which stubs ran for: one name given to `--except`; the option
+      repeated and in its `--except=<name>` form; a name the registry does
+      not hold; `--except` beside `--check`; `--except` naming every entry;
+      `list` over a registry of stubs, in its order, with an entry added to
+      the registry listed and no stub run; `list` from a directory that is
+      not a git repository; `list` followed by an argument, and `list
+      --help`; and the usage naming both forms. Every directory a test needs is made under the
+      operating system's temporary directory and removed when the suite
+      ends; each fixture number sits in a constant declared on a line of
+      its own whose text holds none of the words threshold, coverage,
+      minimum, min, maximum, max, at least or at most.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-35.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/cli.ts
+  - test/unit/cli.test.ts
+  - README.md
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - src/registry.ts
+  - src/index.ts
+  - src/action.ts
+  - src/checks/**
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:cli-select]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

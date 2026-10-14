@@ -30,7 +30,8 @@ after it lands, with no merge by hand after the first task.
   lines (RT-26); then autosquash leftovers (RT-29), suppression directives (RT-31), changed ladder
   scripts (RT-33) and lowered compiler strictness (RT-34).
 - Suite strength: tests that fail on the defects the mutation probe found unasserted, starting with
-  large blobs (RT-23), lowered thresholds (RT-25), lockfile drift (RT-27) and symlinks (RT-30).
+  large blobs (RT-23), lowered thresholds (RT-25), lockfile drift (RT-27) and symlinks (RT-30); then
+  suppression directives (RT-36) and dependency sources (RT-37).
 - Action inputs for the checks to run and the output format (RT-32), which reach the command
   through the step's environment.
 
@@ -42,8 +43,8 @@ stage's new tasks have landed; and the factory has run several passes with two b
 - A full-suite rung that runs the end-to-end suite, and a project-truth rung that runs `repo-truth
   check` on the repository's own candidates (both are the maintainer's edits to
   `factory/checks.yaml`).
-- `--except <name>`, and a command that lists the registered checks, so that rungs and suites never
-  hold a list of names that goes stale.
+- `--except <name>`, and a command that lists the registered checks (RT-35), so that rungs and
+  suites never hold a list of names that goes stale.
 
 Done when five merges in a row are measured `passed` after they land, and the replayed-figures check
 passes over this README's own figures from the root commit.
