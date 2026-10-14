@@ -279,3 +279,208 @@ describe("checkDependencySources", () => {
     }
   });
 });
+
+describe("checkDependencySources, strength", () => {
+  const RESOLVED_LINE = 5;
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), "repo-truth-depsrc-strength-"));
+    await git(repo, ["init", "--quiet", "--initial-branch=main"]);
+  });
+
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  const lockWith = (resolved: string): string =>
+    `{\n  "packages": {\n    "node_modules/a": {\n      "version": "1.0.0",\n      "resolved": "${resolved}"\n    }\n  }\n}\n`;
+
+  async function run(before: Record<string, string | null>, after: Record<string, string | null>, registries?: string[]) {
+    const base = await commit(repo, before, "base");
+    const candidate = await commit(repo, after, "change");
+    return checkDependencySources({ cwd: repo, base, candidate, ...(registries === undefined ? {} : { registries }) });
+  }
+
+  describe("errors", () => {
+    it("carries git's own complaint outside a repository, not node's wording", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "repo-truth-depsrc-none-"));
+      try {
+        const record = await checkDependencySources({ cwd: dir, base: "HEAD", candidate: "HEAD" });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toHaveLength(1);
+        expect(record.evidence[0]).toContain("not a git repository");
+        expect(record.evidence[0]).not.toContain("Command failed");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it.each(["base", "candidate"])("names the git command that refused a %s that names no commit", async (which) => {
+      const head = await commit(repo, { "package.json": deps({}) });
+      const options = which === "base" ? { base: "no-such-rev", candidate: head } : { base: head, candidate: "no-such-rev" };
+      const record = await checkDependencySources({ cwd: repo, ...options });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      expect(record.evidence[0]).toMatch(/^revision "no-such-rev" names no commit: /);
+      expect(record.evidence[0]).toContain("rev-parse");
+    });
+
+    it.each([
+      ["", `revision "" names no commit`],
+      ["-x", `revision "-x" names no commit`],
+      ["--all", `revision "--all" names no commit`],
+    ])("refuses the revision %j before git runs", async (revision, expected) => {
+      const head = await commit(repo, { "package.json": deps({}) });
+      const asBase = await checkDependencySources({ cwd: repo, base: revision, candidate: head });
+      expect(asBase).toEqual({ name: "RT-18", status: "fail", evidence: [expected] });
+      const asCandidate = await checkDependencySources({ cwd: repo, base: head, candidate: revision });
+      expect(asCandidate).toEqual({ name: "RT-18", status: "fail", evidence: [expected] });
+    });
+
+    it("lets git judge a revision that only contains a minus sign", async () => {
+      const head = await commit(repo, { "package.json": deps({}) });
+      const record = await checkDependencySources({ cwd: repo, base: "a-b", candidate: head });
+      expect(record.evidence[0]).toMatch(/^revision "a-b" names no commit: .+/);
+    });
+
+    it("resolves a one-character revision that names a commit", async () => {
+      const first = await commit(repo, { "package.json": deps({}) }, "first");
+      await commit(repo, { "package.json": deps({ a: "^1.0.0" }) }, "second");
+      const same = await checkDependencySources({ cwd: repo, base: "@", candidate: "@" });
+      expect(same).toEqual({ name: "RT-18", status: "pass", evidence: ["no dependency from outside the registry"] });
+      const passed = await checkDependencySources({ cwd: repo, base: first, candidate: "@" });
+      expect(passed.status).toBe("pass");
+      await commit(repo, { "package.json": deps({ a: "github:o/r" }) }, "third");
+      const judged = await checkDependencySources({ cwd: repo, base: first, candidate: "@" });
+      expect(judged.status).toBe("fail");
+      expect(judged.evidence).toEqual([`package.json dependencies "a" "github:o/r" [git]`]);
+    });
+  });
+
+  describe("manifests", () => {
+    it("is not fooled by a package.json that is a directory", async () => {
+      const record = await run(
+        { "package.json/inner.json": deps({ a: "github:o/r" }), "a.txt": "a\n" },
+        { "package.json/inner.json": deps({ a: "github:o/r2" }), "a.txt": "b\n" },
+      );
+      expect(record.status).toBe("skip");
+    });
+
+    it("does not take a manifest below the root for the root's", async () => {
+      const record = await run({ "a.txt": "a\n" }, { "a.txt": "a\n", "sub/package.json": deps({ a: "github:o/r" }) });
+      expect(record.status).toBe("skip");
+    });
+
+    it.each([["[]"], ['"text"'], ["null"], ["7"]])("fails on a candidate manifest that is %s", async (text) => {
+      const record = await run({ "package.json": deps({}) }, { "package.json": `${text}\n` });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      expect(record.evidence[0]).toContain("is not a JSON object");
+      expect(record.evidence[0]).not.toContain("not valid JSON");
+    });
+
+    it.each([["[]"], ['"text"'], ["null"]])("fails on a base manifest that is %s", async (text) => {
+      const record = await run({ "package.json": `${text}\n` }, { "package.json": deps({}) });
+      expect(record.status).toBe("fail");
+      expect(record.evidence[0]).toContain("is not a JSON object");
+    });
+  });
+
+  describe("package names", () => {
+    it.each([
+      ["overrides", "a@1", "npm:a@1.0.0"],
+      ["resolutions", "a@1", "npm:a@1.0.0"],
+      ["resolutions", "a@1", "npm:a"],
+      ["resolutions", "x/**/a@1", "npm:a@1.0.0"],
+      ["overrides", "foo@1", "npm:foo@1.0.0"],
+      ["resolutions", "x/@s/f@1", "npm:@s/f@1.0.0"],
+    ])("accepts a same-name alias under the %s key %j", async (field, key, specifier) => {
+      const record = await run({ "package.json": manifest({}) }, { "package.json": manifest({ [field]: { [key]: specifier } }) });
+      expect(record).toEqual({ name: "RT-18", status: "pass", evidence: ["no dependency from outside the registry"] });
+    });
+
+    it.each([
+      ["resolutions", "a@1", "npm:b@1.0.0"],
+      ["overrides", "a@1", "npm:ab@1.0.0"],
+      ["resolutions", "x/a@1", "npm:b"],
+    ])("still judges a different-name alias under the %s key %j", async (field, key, specifier) => {
+      const record = await run({ "package.json": manifest({}) }, { "package.json": manifest({ [field]: { [key]: specifier } }) });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`package.json ${field} "${key}" "${specifier}" [alias]`]);
+    });
+
+    it.each([
+      ["@s/foo", "npm:@s/foo"],
+      ["@s/foo", "npm:@s/foo@1.0.0"],
+      ["a", "npm:a@1.0.0"],
+      ["a", "npm:a"],
+      ["@a/b", "npm:@a/b@1.0.0"],
+    ])("accepts the alias %j to %j that names its own package", async (key, specifier) => {
+      const record = await run({ "package.json": deps({}) }, { "package.json": deps({ [key]: specifier }) });
+      expect(record).toEqual({ name: "RT-18", status: "pass", evidence: ["no dependency from outside the registry"] });
+    });
+
+    it.each([
+      ["@s/foo", "npm:@s/bar"],
+      ["@s/foo", "npm:@t/foo@1.0.0"],
+      ["a", "npm:b@1.0.0"],
+      ["a", "npm:@a/a@1.0.0"],
+    ])("reports the alias %j to %j that names another package", async (key, specifier) => {
+      const record = await run({ "package.json": deps({}) }, { "package.json": deps({ [key]: specifier }) });
+      expect(record.evidence).toEqual([`package.json dependencies "${key}" "${specifier}" [alias]`]);
+    });
+  });
+
+  describe("lockfiles", () => {
+    it.each([["file:///srv/a.tgz"], ["a.tgz"]])("names the resolved URL %j that has no usable host as unparseable", async (url) => {
+      const record = await run({ "package.json": deps({}) }, { "package.json": deps({}), "package-lock.json": lockWith(url) });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`package-lock.json line ${RESOLVED_LINE} host "unparseable ${url}" [registry]`]);
+    });
+
+    it("names the host of a resolved URL that is one character long", async () => {
+      const record = await run(
+        { "package.json": deps({}) },
+        { "package.json": deps({}), "package-lock.json": lockWith("https://h/a.tgz") },
+      );
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`package-lock.json line ${RESOLVED_LINE} host "h" [registry]`]);
+    });
+
+    it("accepts a one-character host the caller lists", async () => {
+      const record = await run(
+        { "package.json": deps({}) },
+        { "package.json": deps({}), "package-lock.json": lockWith("https://h/a.tgz") },
+        ["h"],
+      );
+      expect(record.status).toBe("pass");
+    });
+
+    it("skips a range that only removes lockfile lines, with no manifest at either end", async () => {
+      const record = await run(
+        {
+          "package-lock.json": lockWith("https://evil.invalid/a.tgz"),
+          "yarn.lock": 'a@^1.0.0:\n  resolved "https://evil.invalid/a.tgz"\n',
+        },
+        {
+          "package-lock.json": lockWith("https://evil.invalid/a.tgz")
+            .split("\n")
+            .filter((text) => !text.includes("resolved"))
+            .join("\n"),
+          "yarn.lock": "a@^1.0.0:\n",
+        },
+      );
+      expect(record.status).toBe("skip");
+      expect(record.evidence.join("\n")).toContain("no lockfile line added");
+    });
+
+    it("does not skip a range that adds a lockfile line, with no manifest at either end", async () => {
+      const record = await run(
+        { "a.txt": "a\n" },
+        { "a.txt": "a\n", "package-lock.json": lockWith("https://registry.npmjs.org/a.tgz") },
+      );
+      expect(record).toEqual({ name: "RT-18", status: "pass", evidence: ["no dependency from outside the registry"] });
+    });
+  });
+});
