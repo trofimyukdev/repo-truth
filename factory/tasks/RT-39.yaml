@@ -1,0 +1,139 @@
+id: RT-39
+repo: repo-truth
+priority: 50
+milestone: M0
+title: Suite strength, the command - tests that fail on the defects the mutation probe found unasserted in src/cli.ts
+
+outcome: >
+  The factory measures how strong a module's tests are by planting small
+  defects in it and counting the ones no test notices. The command's own
+  module (src/cli.ts, last changed by RT-35) merged with such survivors:
+  defects in how `--help` and an unknown or missing command are answered,
+  in how a missing option or option value is reported, in how a revision
+  one character long is resolved and a tilde is escaped, in how a
+  directory that is not a git repository and a failed fetch are reported,
+  in how an empty registry and an `--except` that leaves nothing are
+  answered, in how the JSON document is laid out, and in how the module
+  runs when node runs it as a program, which no test does today. Each one
+  is a way the command could break without a test saying so. This task
+  adds the tests that say so. It changes no source file.
+
+  Written on 2026-10-14 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. A change of tests alone gives the factory's mutation
+  probe nothing to mutate, so the holdout is what shows these tests are
+  strong: it plants the defects the probe recorded as surviving into the
+  module and demands that the suite turn red on each.
+
+measure:
+  - npx vitest run test/unit/cli.test.ts
+
+not_done_if:
+  - "a defect the mutation probe recorded as surviving in src/cli.ts at RT-35's merge, planted back into the module, still leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/cli.test.ts changes - the module, another test, package.json, README.md, a tsconfig - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository - a build written into dist/ among them - or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/cli.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The suite test/unit/cli.test.ts calls `main` of src/cli.ts over
+      registries of stub entries and real throwaway repositories, as its
+      existing cases do, and asserts the exit code, stdout and stderr; one
+      case runs the module as a program, as the last item says.
+  - type: behavior
+    statement: >
+      The suite pins these behaviors of `main`, each by an assertion that a
+      defect in it would change. Commands: `--help` and `-h`, given as the
+      command, print the usage on stdout, write nothing to stderr and exit
+      0, and so does `check --help` given alone; a word that is neither
+      `check` nor `list`, followed by `check`'s own options, exits 2 with
+      the message `unknown command: <word>` and runs no check; no word at all
+      exits 2 with the message `no command given`. Options: an option that
+      takes a value, given last with none, exits 2 with the message `<option>
+      needs a value`; `check` with neither `--base` nor `--target` exits 2
+      with the message `--base or --target is required`, and with no
+      `--candidate` with `--candidate is required`.
+  - type: behavior
+    statement: >
+      Revisions and git: a revision one character long that names a
+      commit, such as `@`, is resolved like any other; a revision that names
+      no commit and holds a tilde, such as `HEAD~9` in a repository of two
+      commits, is named in the message with the tilde as it is; a directory
+      that is not a git repository exits 2 with a message that names it and
+      says it is not a git repository, with `--no-fetch` as without it; and
+      a fetch that fails exits 2 with a message that carries git's own
+      complaint and not node's wording of the failed command, which opens
+      `Command failed`.
+  - type: behavior
+    statement: >
+      Registry and output: with no entry in the registry, `check` runs
+      nothing and exits 0; `--except` that names the one entry a registry of
+      one holds exits 2 with the message that no check is left to run; and
+      the JSON document is written as two-space indented JSON ending in a
+      newline, so stdout equals the document laid out that way.
+  - type: behavior
+    statement: >
+      As a program: the module compiled with the project's own build
+      settings (tsconfig.build.json) into a directory under the operating
+      system's temporary directory, and the compiled cli.js given to node as
+      its script, answers `--help` by printing the usage on stdout and
+      exiting 0, and answers `list` by printing, and exiting 0, the same
+      names `main(["list"])` prints in the suite's own process, so the test
+      holds no list of names.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, so that a later edit of a fixture is
+      not read as a bound moved in a test. Fixtures and the compiled program
+      are made at run time under the operating system's temporary directory
+      and removed when the suite ends, whether it passed or not, and nothing
+      is written into the repository - no dist/ among it; the registry is
+      put back as it was after every test; a git that fails is made by the
+      repository the test builds, never by a stub on the path; nothing is
+      installed or fetched from the network; and no test reads src/cli.ts as
+      text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-39.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/cli.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-cli]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

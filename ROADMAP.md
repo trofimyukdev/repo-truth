@@ -31,7 +31,8 @@ after it lands, with no merge by hand after the first task.
   scripts (RT-33) and lowered compiler strictness (RT-34).
 - Suite strength: tests that fail on the defects the mutation probe found unasserted, starting with
   large blobs (RT-23), lowered thresholds (RT-25), lockfile drift (RT-27) and symlinks (RT-30); then
-  suppression directives (RT-36) and dependency sources (RT-37).
+  suppression directives (RT-36), dependency sources (RT-37), compiler strictness (RT-38) and the
+  command itself (RT-39).
 - Action inputs for the checks to run and the output format (RT-32), which reach the command
   through the step's environment.
 

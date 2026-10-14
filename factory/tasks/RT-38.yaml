@@ -1,0 +1,141 @@
+id: RT-38
+repo: repo-truth
+priority: 51
+milestone: M0
+title: Suite strength, compiler strictness - tests that fail on the defects the mutation probe found unasserted in src/checks/strictness.ts
+
+outcome: >
+  The factory measures how strong a check's tests are by planting small
+  defects in its module and counting the ones no test notices. The
+  compiler strictness check (RT-34) merged with such survivors: defects in
+  how git's own error reaches the evidence, in how a revision that cannot
+  be a commit is refused before git runs, in how a tilde is escaped, in
+  how a tsconfig is read as the compiler reads one - a byte order mark, a
+  backslash inside a string, a comment that opens with a slash, a slash
+  that opens no comment, a comment never closed, a comment or a blank between two parts of a value, a comma
+  before a closing bracket and the commas between the objects of an array
+  - in how a tsconfig that is a symbolic link is refused, and in how a
+  sanction's reason is read from the caller and from a commit message.
+  Each one is a way the check could break without a test saying so. This
+  task adds the tests that say so. It changes no source file.
+
+  Written on 2026-10-14 by the operator's word of that day, under his rule
+  of 2026-09-30 that every not_done_if line of a spec in this repository
+  is covered by a holdout acceptance item or by a deterministic check the
+  spec names: the holdout item below is the gate's, and the builder is
+  never shown it. A change of tests alone gives the factory's mutation
+  probe nothing to mutate, so the holdout is what shows these tests are
+  strong: it plants the defects the probe recorded as surviving into the
+  module and demands that the suite turn red on each. The factory guards
+  this repository's own tsconfig files as gate configuration, so every
+  tsconfig the suite needs is written at run time into a throwaway
+  repository, as the suite already does.
+
+measure:
+  - npx vitest run test/unit/strictness.test.ts
+
+not_done_if:
+  - "a defect the mutation probe recorded as surviving in src/checks/strictness.ts at RT-34's merge, planted back into the module, still leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/strictness.test.ts changes - the module, another test, package.json, a tsconfig committed as a fixture - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/strictness.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The suite test/unit/strictness.test.ts calls `check` of
+      src/checks/strictness.ts over real throwaway repositories and asserts
+      the records it returns.
+  - type: behavior
+    statement: >
+      The suite pins these behaviors of `check`, each by an assertion that a
+      defect in it would change. Errors: a directory that exists and is not
+      a git repository yields a `fail` record whose evidence carries git's
+      own complaint, which says it is not a git repository, and not node's
+      wording of the failed command, which opens `Command failed`; a
+      revision that is empty, or that begins with a minus sign, yields one
+      whose evidence reads exactly `revision "<revision>" does not name a
+      commit`, before git runs; and a revision one character long that
+      names a commit, such as `@`, is resolved and judged like any other.
+      Escaping: a revision that names no commit and holds a tilde, such as
+      `HEAD~9` in a repository of two commits, is printed in the evidence
+      with the tilde as it is.
+  - type: behavior
+    statement: >
+      Reading, as the compiler reads a tsconfig: a file that opens with a
+      byte order mark is read as the same file without it; a string that
+      holds a backslash escape, such as an escaped quote or an escaped
+      backslash, is read whole and the file is judged; a block comment whose
+      text begins with a slash, as `/*/ off */` does, ends only at a `*/`
+      after its opening, so the file reads as if the comment were not
+      there; a slash that opens no comment, as in `{} / x */`, is no comment
+      opener and leaves the file unreadable; a block comment that is never
+      closed makes the file unreadable, a `fail` record whose evidence names
+      the file and says `unterminated comment`; a comment, of either kind, or a blank
+      between two parts of a value keeps them apart as the compiler does, so
+      `tr/* x */ue`, `tr// x` with `ue` on the next line, and `tr ue` are
+      not `true` and the file is unreadable; a comma before the bracket that
+      closes an array is allowed, as before a closing brace; and an array of
+      objects, as `references` holds, keeps the commas between them.
+  - type: behavior
+    statement: >
+      Files and sanctions: a tsconfig that is a symbolic link at an end at
+      which it is read yields a `fail` record whose evidence says it is not
+      a regular file; a reason the caller gives in `sanctions` that is empty
+      or only blanks sanctions nothing, so the finding stays open and the
+      record fails, while a reason one character long sanctions it; and a
+      range whose one finding is sanctioned by a line in a commit message of
+      the range passes.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, so that a later edit of a fixture is
+      not read as a bound moved in a test. Fixtures are built at run time in
+      throwaway repositories under the operating system's temporary
+      directory and removed when the suite ends, whether it passed or not;
+      every tsconfig a test needs is written there at run time; a git that
+      fails is made by the repository the test builds, never by a stub on
+      the path; nothing is installed or fetched; and no test reads
+      src/checks/strictness.ts as text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-38.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/strictness.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-strictness]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
