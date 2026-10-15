@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -304,5 +304,216 @@ describe("RT-34 compiler strictness lowered", () => {
     const parsed = JSON.parse(stdout) as unknown;
     const records = (Array.isArray(parsed) ? parsed : (parsed as { records: unknown[] }).records) as { name: string }[];
     expect(records.map((r) => r.name)).toEqual(["RT-34"]);
+  });
+});
+
+const FAR = "HEAD~9";
+const BOM = "﻿";
+
+describe("RT-34 compiler strictness lowered, as the compiler reads a tsconfig", () => {
+  let repo: string;
+  let made: string[];
+
+  async function fresh(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "repo-truth-strictness-"));
+    made.push(dir);
+    await git(dir, ["init", "--quiet", "--initial-branch=main"]);
+    return dir;
+  }
+
+  beforeEach(async () => {
+    made = [];
+    repo = await fresh();
+  });
+
+  afterEach(async () => {
+    for (const dir of made) await rm(dir, { recursive: true, force: true });
+  });
+
+  const STRICT_ID = "strictness-lowered:tsconfig.json:strict";
+  const NULLS_ID = "strictness-lowered:tsconfig.json:strictNullChecks";
+  const ids = (record: { findings: readonly { id: string }[] }): string[] => record.findings.map((f) => f.id);
+
+  /** A merge base that holds strict and a candidate that holds `text`. */
+  async function judge(text: string, baseText = config({ strict: true })) {
+    const base = await commit(repo, { "keep.txt": "keep\n", [TSCONFIG]: baseText }, "base");
+    const candidate = await commit(repo, { [TSCONFIG]: text }, "change");
+    return check({ cwd: repo, base, candidate });
+  }
+
+  const read = (compilerOptions: string): string => `{ "compilerOptions": { ${compilerOptions} } }\n`;
+
+  async function expectRead(text: string, baseText?: string): Promise<void> {
+    const record = await judge(text, baseText);
+    expect(record.evidence.join("\n")).not.toMatch(/not JSON/);
+    expect(ids(record)).toContain(STRICT_ID);
+    repo = await fresh();
+  }
+
+  async function expectUnreadable(text: string): Promise<void> {
+    const record = await judge(text);
+    expect(record.status).toBe("fail");
+    expect(record.evidence[0]).toMatch(/^tsconfig\.json: at the candidate the file is not JSON/);
+    repo = await fresh();
+  }
+
+  it("carries git's own complaint for a directory that is not a repository", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "repo-truth-strictness-plain-"));
+    made.push(dir);
+    const record = await check({ cwd: dir, base: "HEAD", candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    const text = record.evidence.join("\n");
+    expect(text).toMatch(/not a git repository/i);
+    expect(text).not.toContain("Command failed");
+  });
+
+  it("refuses a revision that is empty or begins with a minus sign, before git runs", async () => {
+    await commit(repo, { "keep.txt": "keep\n" }, "base");
+    for (const revision of ["", "-", "-x", "--all"]) {
+      for (const side of ["base", "candidate"] as const) {
+        const options = side === "base" ? { base: revision, candidate: "HEAD" } : { base: "HEAD", candidate: revision };
+        const record = await check({ cwd: repo, ...options });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toEqual([`revision "${revision}" does not name a commit`]);
+      }
+    }
+  });
+
+  it("resolves a revision one character long that names a commit", async () => {
+    const base = await commit(repo, { "keep.txt": "keep\n", [TSCONFIG]: config({ strict: true }) }, "base");
+    await commit(repo, { [TSCONFIG]: config({ strict: false }) }, "change");
+    const record = await check({ cwd: repo, base, candidate: "@" });
+    expect(ids(record)).toContain(STRICT_ID);
+    const same = await check({ cwd: repo, base: "@", candidate: "@" });
+    expect(same.status).toBe("pass");
+    expect(same.evidence).toEqual(["no strict option lowered"]);
+  });
+
+  it("prints a tilde as it is in a revision that names no commit", async () => {
+    await commit(repo, { "keep.txt": "keep\n" }, "base");
+    await commit(repo, { "keep.txt": "again\n" }, "next");
+    const record = await check({ cwd: repo, base: FAR, candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    expect(record.evidence[0]).toContain(`revision "${FAR}" does not name a commit`);
+  });
+
+  it("reads a file that opens with a byte order mark as the same file without it", async () => {
+    await expectRead(BOM + config({ strict: false }));
+    await expectRead(config({ strict: false }), BOM + config({ strict: true }));
+  });
+
+  it("reads a string that holds a backslash escape whole", async () => {
+    await expectRead(read(String.raw`"outDir": "a\"b", "strict": false`));
+    await expectRead(read(String.raw`"outDir": "a\\", "strict": false`));
+    await expectRead(read(String.raw`"outDir": "a\\\"", "strict": false`));
+    await expectRead(read(String.raw`"outDir": "// \\", "strict": false`));
+  });
+
+  it("ends a block comment that begins with a slash only at a */ after its opening", async () => {
+    await expectRead(read(`"strict": false /*/ off */`));
+    await expectRead(read(`/*/ off */ "strict": false`));
+  });
+
+  it("does not take a slash that opens no comment for a comment opener", async () => {
+    await expectUnreadable("{} / x */");
+    await expectUnreadable(read(`"strict": false / x */`));
+    await expectUnreadable(read(`"strict": false /`));
+  });
+
+  it("fails on a block comment that is never closed, naming the file", async () => {
+    const record = await judge(read(`"strict": false /* never closed`));
+    expect(record.status).toBe("fail");
+    expect(record.evidence[0]).toMatch(/^tsconfig\.json:/);
+    expect(record.evidence[0]).toContain("unterminated comment");
+  });
+
+  it("keeps the parts of a value apart across a comment or a blank", async () => {
+    await expectUnreadable(read(`"strict": tr/* x */ue`));
+    await expectUnreadable(read(`"strict": tr// x\nue`));
+    await expectUnreadable(read(`"strict": tr ue`));
+    await expectUnreadable(read(`"strict": tr\tue`));
+    await expectUnreadable(read(`"strict": tr\nue`));
+    await expectUnreadable(read(`"strict": tr\rue`));
+  });
+
+  it("allows a comma before the bracket that closes an array, as before a brace", async () => {
+    await expectRead(read(`"lib": ["a", "b",], "strict": false`));
+    await expectRead(read(`"lib": ["a", /* c */ ], "strict": false`));
+    await expectRead(read(`"lib": ["a", // c\n ], "strict": false`));
+    await expectRead(read(`"strict": false, `));
+    await expectRead(`{ "compilerOptions": { "strict": false, }, }\n`);
+  });
+
+  it("keeps the commas between the objects of an array", async () => {
+    await expectRead(`{ "references": [{ "path": "a" }, { "path": "b" }], "compilerOptions": { "strict": false } }\n`);
+    await expectRead(`{ "references": [{ "path": "a" }, { "path": "b" },], "compilerOptions": { "strict": false } }\n`);
+    await expectRead(`{ "references": [[1], [2]], "compilerOptions": { "strict": false } }\n`);
+    await expectUnreadable(`{ "references": [{ "path": "a" } { "path": "b" }], "compilerOptions": { "strict": false } }\n`);
+  });
+
+  it("refuses a tsconfig that is a symbolic link at the candidate", async () => {
+    const base = await commit(repo, { "keep.txt": "keep\n", [TSCONFIG]: config({ strict: true }) }, "base");
+    await rm(join(repo, TSCONFIG));
+    await symlink("keep.txt", join(repo, TSCONFIG));
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "--quiet", "-m", "link"]);
+    const record = await check({ cwd: repo, base, candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    expect(record.evidence[0]).toBe("tsconfig.json: at the candidate the file is not a regular file");
+  });
+
+  it("refuses a tsconfig that is a symbolic link at the merge base", async () => {
+    await symlink("keep.txt", join(repo, TSCONFIG));
+    const base = await commit(repo, { "keep.txt": "keep\n" }, "base");
+    await rm(join(repo, TSCONFIG));
+    const candidate = await commit(repo, { [TSCONFIG]: config({ strict: true }) }, "file");
+    const record = await check({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence[0]).toBe("tsconfig.json: at the merge base the file is not a regular file");
+  });
+
+  describe("sanctions", () => {
+    async function lowerOne(sanctions: Record<string, string>, message = "change") {
+      const dir = await fresh();
+      const base = await commit(dir, { "keep.txt": "keep\n", [TSCONFIG]: config({ strict: true }) }, "base");
+      const candidate = await commit(dir, { [TSCONFIG]: config({ strict: true, strictNullChecks: false }) }, message);
+      return check({ cwd: dir, base, candidate, sanctions });
+    }
+
+    it("sanctions nothing by a reason from the caller that is empty or only blanks", async () => {
+      for (const reason of ["", " ", "   ", "\t", "\n"]) {
+        for (const key of [NULLS_ID, "strictness-lowered:tsconfig.json"]) {
+          const record = await lowerOne({ [key]: reason });
+          expect(record.status).toBe("fail");
+          expect(ids(record)).toEqual([NULLS_ID]);
+          expect(record.findings[0]?.sanction).toBeNull();
+        }
+      }
+    });
+
+    it("sanctions a finding by a reason from the caller that is one character long", async () => {
+      const record = await lowerOne({ [NULLS_ID]: "y" });
+      expect(record.status).toBe("pass");
+      expect(record.findings[0]?.sanction).toBe("y");
+      expect(record.evidence).toEqual(["tsconfig.json: lowered strictNullChecks: true -> false - sanctioned: y"]);
+    });
+
+    it("passes a range whose one finding is sanctioned by a line in a commit message", async () => {
+      const record = await lowerOne({}, `change\n\n${SANCTION_KEY}: ${NULLS_ID} y`);
+      expect(record.status).toBe("pass");
+      expect(record.findings[0]?.sanction).toBe("y");
+    });
+
+    it("passes a range sanctioned by a category and file line in a commit message", async () => {
+      const record = await lowerOne({}, `change\n\n${SANCTION_KEY}:   strictness-lowered:tsconfig.json   relaxed for now  `);
+      expect(record.status).toBe("pass");
+      expect(record.findings[0]?.sanction).toBe("relaxed for now");
+    });
+
+    it("leaves a finding open when the line gives no reason", async () => {
+      const record = await lowerOne({}, `change\n\n${SANCTION_KEY}: ${NULLS_ID}`);
+      expect(record.status).toBe("fail");
+      expect(record.findings[0]?.sanction).toBeNull();
+    });
   });
 });
