@@ -1,7 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -62,6 +64,9 @@ afterEach(() => {
 function useRegistry(...entries: RegistryEntry[]): void {
   REGISTRY.splice(0, REGISTRY.length, ...entries);
 }
+
+const PROGRAM_TIMEOUT_MS = 180000;
+const MISSING_DEPTH = 9;
 
 const range = () => ["check", "--no-fetch", "--base", first, "--candidate", second];
 
@@ -440,5 +445,186 @@ describe("usage", () => {
       expect(text).toContain("[--check <name>]...");
       expect(text).toContain("repo-truth list");
     }
+  });
+});
+
+const usageText = async (): Promise<string> => (await run(["--help"], repo)).stdout;
+
+const refusal = async (argv: string[], message: string, calls: string[] = []) => {
+  const result = await run(argv, repo);
+  expect(result.code, argv.join(" ")).toBe(EXIT_BAD_INVOCATION);
+  expect(result.stdout, argv.join(" ")).toBe("");
+  expect(result.stderr, argv.join(" ")).toBe(`repo-truth: ${message}\n${await usageText()}`);
+  expect(calls).toEqual([]);
+};
+
+describe("the command word and --help", () => {
+  it("--help, -h and check --help print the usage on stdout and nothing on stderr", async () => {
+    const usage = await usageText();
+    expect(usage).toMatch(/^usage: repo-truth check /);
+    expect(usage).toContain("repo-truth list");
+    for (const argv of [["--help"], ["-h"], ["check", "--help"], ["check", "-h"]]) {
+      expect(await run(argv, repo), argv.join(" ")).toEqual({ code: EXIT_OK, stdout: usage, stderr: "" });
+    }
+  });
+
+  it("an unknown command word is named, even before check's own options, and nothing runs", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    await refusal(["bogus", ...range().slice(1)], "unknown command: bogus", calls);
+    await refusal(["bogus"], "unknown command: bogus", calls);
+  });
+
+  it("no word at all is named", async () => {
+    await refusal([], "no command given");
+  });
+});
+
+describe("options", () => {
+  it("an option that takes a value, given last with none, says it needs one", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    for (const option of ["--base", "--target", "--candidate", "--check", "--except", "--format"]) {
+      await refusal(["check", "--no-fetch", option], `${option} needs a value`, calls);
+    }
+  });
+
+  it("check without --base and --target says one is required", async () => {
+    await refusal(["check"], "--base or --target is required");
+    await refusal(["check", "--candidate", second], "--base or --target is required");
+  });
+
+  it("check without --candidate says it is required", async () => {
+    await refusal(["check", "--base", first], "--candidate is required");
+    await refusal(["check", "--target", first], "--candidate is required");
+  });
+});
+
+describe("revisions and git", () => {
+  it("a revision one character long that names a commit is resolved", async () => {
+    useRegistry(stub("A", "pass"));
+    const result = await run(["check", "--no-fetch", "--base", "@", "--candidate", "@", "--format", "json"], repo);
+    expect(result.code).toBe(EXIT_OK);
+    expect(result.stderr).toBe("");
+    const doc = JSON.parse(result.stdout);
+    expect(doc.base).toBe(second);
+    expect(doc.candidate).toBe(second);
+  });
+
+  it("a revision that names no commit is named with its tilde as it is", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    const missing = `HEAD~${MISSING_DEPTH}`;
+    const result = await run(["check", "--no-fetch", "--base", missing, "--candidate", "HEAD"], repo);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(`--base "${missing}" does not name a commit in this repository`);
+    expect(calls).toEqual([]);
+  });
+
+  it("a directory that is not a git repository is named as one, with or without --no-fetch", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    for (const argv of [range(), range().filter((a) => a !== "--no-fetch")]) {
+      const result = await run(argv, root);
+      expect(result.code).toBe(EXIT_BAD_INVOCATION);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(`${root} is not a git repository`);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("a failed fetch carries git's own complaint, not node's wording", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    const broken = join(root, "fetch-broken");
+    git(root, "clone", "-q", repo, broken);
+    git(broken, "remote", "add", "gone", join(root, "no-such-remote"));
+    const result = await run(["check", "--base", "HEAD", "--candidate", "HEAD"], broken);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/could not fetch: (fatal|error): /);
+    expect(result.stderr).not.toContain("Command failed");
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("registry and output", () => {
+  it("an empty registry runs nothing and exits 0", async () => {
+    useRegistry();
+    expect(await run(range(), repo)).toEqual({
+      code: EXIT_OK,
+      stdout: "repo-truth: all checks passed\n",
+      stderr: "",
+    });
+    const json = await run([...range(), "--format", "json"], repo);
+    expect(json.code).toBe(EXIT_OK);
+    expect(JSON.parse(json.stdout).records).toEqual([]);
+  });
+
+  it("--except naming the one entry of a registry of one leaves no check to run", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("ONLY", "pass", calls));
+    const result = await run([...range(), "--except", "ONLY"], repo);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("no check is left to run");
+    expect(calls).toEqual([]);
+  });
+
+  it("the JSON document is two-space indented and ends in a newline", async () => {
+    useRegistry(stub("A", "pass"), stub("B", "fail"));
+    const result = await run([...range(), "--format", "json"], repo);
+    const doc = {
+      schema: "repo-truth.check/v1",
+      base: first,
+      candidate: second,
+      ok: false,
+      exitCode: 1,
+      records: [
+        { name: "A", status: "pass", evidence: ["A says pass"] },
+        { name: "B", status: "fail", evidence: ["B says fail"] },
+      ],
+    };
+    expect(result.stdout).toBe(JSON.stringify(doc, null, 2) + "\n");
+  });
+});
+
+describe("as a program", () => {
+  let built: string;
+
+  beforeAll(() => {
+    built = mkdtempSync(join(tmpdir(), "repo-truth-program-"));
+    const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
+    const project = fileURLToPath(new URL("../../tsconfig.build.json", import.meta.url));
+    execFileSync(process.execPath, [tsc, "-p", project, "--outDir", built], { encoding: "utf8" });
+    writeFileSync(join(built, "package.json"), '{"type":"module"}\n');
+  }, PROGRAM_TIMEOUT_MS);
+
+  afterAll(() => rmSync(built, { recursive: true, force: true }));
+
+  const program = (...args: string[]) =>
+    spawnSync(process.execPath, [join(built, "cli.js"), ...args], { cwd: root, encoding: "utf8" });
+
+  it("answers --help with the usage and exit 0", async () => {
+    const result = program("--help");
+    expect(result.status).toBe(EXIT_OK);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(await usageText());
+  });
+
+  it("answers list with the names main prints", async () => {
+    const expected = await run(["list"], repo);
+    expect(expected.stdout).not.toBe("");
+    const result = program("list");
+    expect(result.status).toBe(EXIT_OK);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(expected.stdout);
+  });
+
+  it("exits 2 for a bad invocation", () => {
+    const result = program("bogus");
+    expect(result.status).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
   });
 });
