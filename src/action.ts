@@ -9,8 +9,10 @@
  */
 
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+import type { CliIo } from "./cli.js";
 
 /** The range cannot be resolved; the command maps this to its bad-invocation code. */
 export class RangeResolutionError extends Error {}
@@ -98,13 +100,74 @@ function isActionEntryPoint(): boolean {
   }
 }
 
+const OUTCOMES: Readonly<Record<number, string>> = {
+  0: "All checks passed (exit code 0).",
+  1: "At least one check failed (exit code 1).",
+  2: "The checks did not run (exit code 2).",
+};
+
+/**
+ * The job summary of a run: a heading, the outcome in one sentence, and the
+ * output whole in one fenced block whose fence is longer than any run of
+ * backticks the output holds, so no text of it closes or opens a block.
+ */
+export function jobSummary(exitCode: number, output: string): string {
+  const sentence = OUTCOMES[exitCode] ?? `The run ended with exit code ${exitCode}.`;
+  const body = output.endsWith("\n") ? output.slice(0, -1) : output;
+  const longest = Math.max(0, ...(output.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `## repo-truth\n\n${sentence}\n\n${fence}\n${body === "" ? "" : body + "\n"}${fence}\n`;
+}
+
+/**
+ * What the Action's program does: run the command with the Action's
+ * arguments, pass its output on, and append the job summary to the file
+ * `env.GITHUB_STEP_SUMMARY` names, if any. Resolves to the command's exit code.
+ */
+export async function runAction(
+  argv: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+  io: CliIo = {},
+): Promise<number> {
+  const { main } = await import("./cli.js");
+  let stdout = "";
+  let stderr = "";
+  const toStderr = (text: string): void => {
+    if (io.stderr) io.stderr(text);
+    else process.stderr.write(text);
+  };
+  const code = await main(actionArguments(argv, env), {
+    ...io,
+    stdout: (text) => {
+      stdout += text;
+      if (io.stdout) io.stdout(text);
+      else process.stdout.write(text);
+    },
+    stderr: (text) => {
+      stderr += text;
+      toStderr(text);
+    },
+  });
+  const file = env.GITHUB_STEP_SUMMARY;
+  if (file !== undefined && file !== "") {
+    try {
+      const held = existsSync(file) ? readFileSync(file, "utf8") : "";
+      const lead = held !== "" && !held.endsWith("\n") ? "\n" : "";
+      appendFileSync(file, lead + jobSummary(code, code === 2 ? stderr : stdout));
+    } catch (error) {
+      const reason = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ");
+      toStderr(`repo-truth: could not write the job summary: ${reason}\n`);
+    }
+  }
+  return code;
+}
+
 // cli.ts imports this module, so `main` is reached only by a dynamic import
 // made after this module has finished loading.
 if (isActionEntryPoint()) {
   void (async () => {
     try {
-      const { main } = await import("./cli.js");
-      process.exitCode = await main(actionArguments(process.argv.slice(2), process.env));
+      process.exitCode = await runAction(process.argv.slice(2), process.env);
     } catch (error) {
       process.stderr.write(`repo-truth: ${error instanceof Error ? error.message : String(error)}\n`);
       process.exitCode = 2;
