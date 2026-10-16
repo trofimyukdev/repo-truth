@@ -54,7 +54,7 @@ passes over this README's own figures from the root commit.
 
 - Per-check options read from one configuration file (its form is a product decision, the
   maintainer's), handed to each check by the command.
-- A path-policy check, and the Action's records written to the job summary.
+- A path-policy check, and the Action's records written to the job summary (the latter RT-40).
 
 Done when a range is checked with per-check options from one file and the Action writes its records
 to the job summary.

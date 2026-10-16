@@ -1,0 +1,148 @@
+id: RT-40
+repo: repo-truth
+priority: 49
+milestone: M0
+title: The job summary - the Action writes its records to the run's summary page, beside the log
+
+outcome: >
+  The Action (RT-08, with RT-32's inputs) prints its records into the
+  step's log and nowhere else, so a reader of a pull request's run has to
+  open the step and scroll it to learn which check failed. GitHub gives
+  every step a file of its own, named by the environment variable
+  GITHUB_STEP_SUMMARY, and shows the markdown a step appends to it on the
+  run's summary page. ROADMAP.md's stage 3 names this: "the Action's
+  records written to the job summary". This task makes the Action's
+  program, src/action.ts, append a summary of the run to that file: a
+  heading, one sentence that says the outcome with its exit code, and the
+  command's own output whole inside one fenced block, so the page shows
+  exactly what the log shows and nothing a record holds is read as
+  markdown. The command, its records, its output and its exit codes do not
+  change, and a run with no such variable writes nothing.
+
+  Written on 2026-10-16 under the operator's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/action.test.ts
+  - npm run build && node --input-type=module -e 'const a = await import("./dist/action.js"); process.exitCode = Number(typeof a.jobSummary !== "function" || typeof a.runAction !== "function")'
+
+not_done_if:
+  - "with GITHUB_STEP_SUMMARY naming a file, a run of dist/action.js as a program that passes, fails or cannot run leaves the file without exactly the summary `jobSummary` makes of the run's exit code and output, appended after what the file held"
+  - "the summary does not open with the heading `## repo-truth`, does not say the outcome in the sentence the acceptance gives for its exit code, or does not hold the output whole - stdout on 0 and 1, stderr on 2 - between the two lines of one fenced block"
+  - "a run of backticks in the output closes the fenced block or opens one of its own, so a record's text is read as markdown"
+  - "what the file held is overwritten or joined to the summary's first line, or a file is written when GITHUB_STEP_SUMMARY is unset or empty"
+  - "with a summary or without one, the run's stdout, stderr or exit code differs from the command's own; or a summary that cannot be written changes the exit code or the stdout, or says nothing on stderr"
+  - "imported as a module, dist/action.js runs the command or writes a summary"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less"
+  - "a file other than src/action.ts, test/unit/action.test.ts and README.md changes - action.yml, src/cli.ts, package.json - or README.md does not say that the Action writes its records to the job summary"
+  - "the suite fails on the code as it stands, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const a = await import("./dist/action.js"); process.exitCode = Number(typeof a.jobSummary !== "function" || typeof a.runAction !== "function")'
+    required: true
+  - type: behavior
+    statement: >
+      src/action.ts exports `jobSummary(exitCode, output)`, a function of a
+      number and a string that runs nothing and returns markdown: the line
+      `## repo-truth`; an empty line; the sentence for the exit code -
+      `All checks passed (exit code 0).`, `At least one check failed (exit
+      code 1).` or `The checks did not run (exit code 2).`; an empty line;
+      then one fenced block - an opening line, the output's lines, and a
+      closing line equal to the opening one - and a newline after it. The
+      output appears between the two fence lines exactly as given, without
+      its final newline when it ends in one, and nothing between them when
+      it is empty. Each fence line is a run of backticks, at least three,
+      and one longer than the longest run of backticks the output holds
+      anywhere, so no text of the output can close the block or open one.
+  - type: behavior
+    statement: >
+      src/action.ts exports `runAction(argv, env, io)`, which does what the
+      Action's program does and resolves to its exit code: it runs `main`
+      of src/cli.ts with `actionArguments(argv, env)` and with `io`, its
+      stdout and stderr passed on to `io`'s (or to the process's when `io`
+      names none) as `main` writes them, so the run prints what the command
+      prints and exits with the code `main` resolves to. Then, when
+      `env.GITHUB_STEP_SUMMARY` is set and not empty, it appends
+      `jobSummary(code, text)` to the file it names - `text` being what was
+      written to stdout on 0 and 1, and to stderr on 2 - creating the file
+      when it is absent and leaving what it held as it was, with one
+      newline written first when the file is not empty and does not end in
+      one. A summary that cannot be written - the variable names a
+      directory, say - writes one line opening `repo-truth: could not write
+      the job summary` to stderr and changes neither the exit code nor
+      stdout. When node runs the built dist/action.js as a program, it calls
+      `runAction` with its own arguments and `process.env`, and exits with
+      the code it resolves to; imported as a module, it runs nothing and
+      writes nothing. src/cli.ts imports src/action.ts, so src/action.ts
+      reaches `main` only through an `import()` it makes at run time, after
+      its own module has finished loading.
+  - type: behavior
+    statement: >
+      README.md, where it says what the Action does, says that the Action
+      also writes its records to the job summary, the run's summary page, in
+      one fenced block under a `repo-truth` heading, and that a run outside
+      GitHub, with no GITHUB_STEP_SUMMARY, writes none.
+  - type: behavior
+    statement: >
+      Tests call `jobSummary` for each of the three exit codes, with an
+      empty output, an output ending in a newline and one not ending in one,
+      and outputs holding a run of three and a run of five backticks, and
+      assert the whole string each returns; and call `runAction` over a
+      throwaway repository, with the registry's entries replaced as the
+      suite already does, with GITHUB_STEP_SUMMARY naming a file in a
+      temporary directory - absent, empty, holding a line with and without
+      its newline - and naming a directory, and with it unset and empty, and
+      assert the file's whole content, the exit code, stdout and stderr each
+      time. Fixtures are built at run time under the operating system's
+      temporary directory and removed when the suite ends; each fixture
+      number sits in a constant declared on a line of its own whose text
+      holds none of the words threshold, coverage, minimum, min, maximum,
+      max, at least or at most.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-40.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/action.ts
+  - test/unit/action.test.ts
+  - README.md
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - action.yml
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/checks/**
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:job-summary]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
