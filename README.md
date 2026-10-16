@@ -26,7 +26,10 @@ The Action is `action.yml`, at the root. It builds repo-truth with
 `npm ci && npm run build`, then runs the command over the pull request that
 triggered it: `--target` is the pull request's base branch on `origin`, and
 `--candidate` its head commit. Its description ends "Needs actions/checkout with
-fetch-depth 0." No workflow in this repository runs it:
+fetch-depth 0." The Action also writes its records to the job summary, the run's
+summary page: a `repo-truth` heading, one sentence with the outcome and exit code, and
+the command's output whole in one fenced block. A run outside GitHub, with no
+`GITHUB_STEP_SUMMARY`, writes none. No workflow in this repository runs it:
 `git ls-tree -r --name-only 825cfbf -- .github` printed nothing on 2026-10-05.
 
 ## What it checks

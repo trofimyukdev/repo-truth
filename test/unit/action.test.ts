@@ -1,12 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { actionArguments, assertPullRequestEvent, RangeResolutionError, resolveMergeBase } from "../../src/action.js";
+import {
+  actionArguments,
+  assertPullRequestEvent,
+  jobSummary,
+  RangeResolutionError,
+  resolveMergeBase,
+  runAction,
+} from "../../src/action.js";
 import { EXIT_BAD_INVOCATION, EXIT_CHECK_FAILED, EXIT_OK, main } from "../../src/cli.js";
 import type { CheckRecord } from "../../src/index.js";
 import { REGISTRY, type RegistryEntry } from "../../src/registry.js";
@@ -359,5 +366,119 @@ describe("main with actionArguments", () => {
       expect(r.stdout).toBe("");
     }
     expect(calls).toEqual([]);
+  });
+});
+
+const tick = (n: number): string => "`".repeat(n);
+
+describe("jobSummary", () => {
+  const sentences = [
+    "All checks passed (exit code 0).",
+    "At least one check failed (exit code 1).",
+    "The checks did not run (exit code 2).",
+  ];
+  const head = (code: number) => `## repo-truth\n\n${sentences[code]}\n\n`;
+
+  it("holds the heading, the sentence and one fenced block, for each exit code", () => {
+    for (const code of [0, 1, 2]) {
+      const f = tick(3);
+      expect(jobSummary(code, "a\nb")).toBe(`${head(code)}${f}\na\nb\n${f}\n`);
+      expect(jobSummary(code, "a\nb\n")).toBe(`${head(code)}${f}\na\nb\n${f}\n`);
+      expect(jobSummary(code, "a\n\n")).toBe(`${head(code)}${f}\na\n\n${f}\n`);
+      expect(jobSummary(code, "")).toBe(`${head(code)}${f}\n${f}\n`);
+    }
+  });
+
+  it("fences with a run longer than any run of backticks in the output", () => {
+    const three = `x ${tick(3)} y\n`;
+    expect(jobSummary(1, three)).toBe(`${head(1)}${tick(4)}\nx ${tick(3)} y\n${tick(4)}\n`);
+    const five = `${tick(5)}\nz`;
+    expect(jobSummary(0, five)).toBe(`${head(0)}${tick(6)}\n${tick(5)}\nz\n${tick(6)}\n`);
+    expect(jobSummary(2, `a ${tick(1)} b ${tick(2)}`)).toBe(`${head(2)}${tick(3)}\na ${tick(1)} b ${tick(2)}\n${tick(3)}\n`);
+  });
+});
+
+describe("runAction", () => {
+  let repo: string;
+  let head: string;
+  let dir: string;
+
+  beforeAll(() => {
+    repo = newRepo();
+    commit(repo, "a.txt", "1\n", "fork");
+    git(repo, "checkout", "-q", "-b", "feature");
+    head = commit(repo, "f.txt", "f\n", "feature work");
+    git(repo, "checkout", "-q", "main");
+    dir = join(root, "summaries");
+    mkdirSync(dir);
+  });
+
+  const argv = () => ["check", "--no-fetch", "--format", "json", "--target", "main", "--candidate", head];
+
+  async function act(args: string[], env: Record<string, string | undefined>) {
+    let stdout = "";
+    let stderr = "";
+    const code = await runAction(args, env, {
+      cwd: repo,
+      env,
+      stdout: (t) => void (stdout += t),
+      stderr: (t) => void (stderr += t),
+    });
+    return { code, stdout, stderr };
+  }
+
+  const summaryPath = () => join(dir, `s-${counter++}.md`);
+
+  it("appends the summary of a passing run to an absent file, and prints what the command prints", async () => {
+    useRegistry(stub("A", "pass"));
+    const file = summaryPath();
+    const plain = await run(argv(), repo);
+    const r = await act(argv(), { GITHUB_STEP_SUMMARY: file });
+    expect(r).toEqual(plain);
+    expect(r.code).toBe(EXIT_OK);
+    expect(readFileSync(file, "utf8")).toBe(jobSummary(0, r.stdout));
+  });
+
+  it("appends after an empty file, a line with its newline, and a line without", async () => {
+    useRegistry(stub("A", "fail"));
+    for (const held of ["", "line\n", "line"]) {
+      const file = summaryPath();
+      writeFileSync(file, held);
+      const r = await act(argv(), { GITHUB_STEP_SUMMARY: file });
+      expect(r.code).toBe(EXIT_CHECK_FAILED);
+      const lead = held === "" || held.endsWith("\n") ? "" : "\n";
+      expect(readFileSync(file, "utf8")).toBe(held + lead + jobSummary(1, r.stdout));
+      expect(r.stderr).toBe("");
+    }
+  });
+
+  it("holds stderr on exit 2 and leaves stdout empty", async () => {
+    useRegistry(stub("A", "pass"));
+    const file = summaryPath();
+    const r = await act(["check", "--no-fetch", "--candidate", head], { GITHUB_STEP_SUMMARY: file });
+    expect(r.code).toBe(EXIT_BAD_INVOCATION);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).not.toBe("");
+    expect(readFileSync(file, "utf8")).toBe(jobSummary(2, r.stderr));
+  });
+
+  it("says one line on stderr and changes nothing else when the file cannot be written", async () => {
+    useRegistry(stub("A", "pass"));
+    const plain = await run(argv(), repo);
+    const r = await act(argv(), { GITHUB_STEP_SUMMARY: dir });
+    expect(r.code).toBe(plain.code);
+    expect(r.stdout).toBe(plain.stdout);
+    expect(r.stderr.startsWith("repo-truth: could not write the job summary")).toBe(true);
+    expect(r.stderr.trimEnd().split("\n")).toHaveLength(1);
+  });
+
+  it("writes no file when the variable is unset or empty", async () => {
+    useRegistry(stub("A", "pass"));
+    const plain = await run(argv(), repo);
+    for (const env of [{}, { GITHUB_STEP_SUMMARY: "" }]) {
+      const r = await act(argv(), env);
+      expect(r).toEqual(plain);
+    }
+    expect(existsSync(join(dir, `s-${counter}.md`))).toBe(false);
   });
 });
