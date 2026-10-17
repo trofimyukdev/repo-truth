@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -480,5 +481,102 @@ describe("runAction", () => {
       expect(r).toEqual(plain);
     }
     expect(existsSync(join(dir, `s-${counter}.md`))).toBe(false);
+  });
+});
+
+describe("resolveMergeBase failures", () => {
+  it("says the checkout is shallow in a shallow checkout", async () => {
+    const origin = newRepo();
+    commit(origin, "a.txt", "1\n", "fork");
+    git(origin, "checkout", "-q", "-b", "feature");
+    commit(origin, "f.txt", "f\n", "feature work");
+    git(origin, "checkout", "-q", "main");
+    commit(origin, "m1.txt", "m\n", "main 1");
+    commit(origin, "m2.txt", "m\n", "main 2");
+    const clone = join(root, `clone-${counter++}`);
+    git(root, "clone", "-q", "--depth", "1", "--no-single-branch", pathToFileURL(origin).href, clone);
+    expect(git(clone, "rev-parse", "--is-shallow-repository")).toBe("true");
+    const error = await resolveMergeBase(clone, "origin/main", "origin/feature").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RangeResolutionError);
+    expect((error as Error).message).toMatch(/shallow/);
+    expect((error as Error).message).toContain("fetch-depth: 0");
+  });
+
+  it("says the two share no history, and not that the checkout is shallow, in a full checkout", async () => {
+    const repo = newRepo();
+    commit(repo, "a.txt", "1\n", "main work");
+    git(repo, "checkout", "-q", "--orphan", "island");
+    const island = commit(repo, "i.txt", "i\n", "island work");
+    expect(git(repo, "rev-parse", "--is-shallow-repository")).toBe("false");
+    const error = await resolveMergeBase(repo, "main", island).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RangeResolutionError);
+    expect((error as Error).message).toContain("share no history");
+    expect((error as Error).message).not.toMatch(/shallow/);
+  });
+
+  it("carries git's own complaint, naming the target, for a target that names no commit", async () => {
+    const repo = newRepo();
+    const only = commit(repo, "a.txt", "1\n", "work");
+    const error = await resolveMergeBase(repo, "no-such-branch", only).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RangeResolutionError);
+    const message = (error as Error).message;
+    expect(message.startsWith("could not compute the merge base of")).toBe(true);
+    expect(message).toContain("no-such-branch");
+    expect(message).toContain("fatal:");
+    expect(message).not.toContain("Command failed");
+    expect(message).not.toMatch(/share no history|shallow/);
+  });
+});
+
+const PROGRAM_TIMEOUT_MS = 120000;
+
+describe("as a program", () => {
+  let built: string;
+  let broken: string;
+  let summaries: string;
+
+  beforeAll(() => {
+    built = mkdtempSync(join(tmpdir(), "repo-truth-action-program-"));
+    broken = mkdtempSync(join(tmpdir(), "repo-truth-action-broken-"));
+    summaries = mkdtempSync(join(tmpdir(), "repo-truth-action-out-"));
+    const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
+    const project = fileURLToPath(new URL("../../tsconfig.build.json", import.meta.url));
+    execFileSync(process.execPath, [tsc, "-p", project, "--outDir", built], { encoding: "utf8" });
+    writeFileSync(join(built, "package.json"), '{"type":"module"}\n');
+    cpSync(built, broken, { recursive: true });
+    rmSync(join(broken, "cli.js"));
+  }, PROGRAM_TIMEOUT_MS);
+
+  afterAll(() => {
+    for (const dir of [built, broken, summaries]) if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const program = (dir: string, file: string, ...args: string[]) =>
+    spawnSync(process.execPath, [join(dir, "action.js"), ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_STEP_SUMMARY: file },
+    });
+
+  it("answers --help with the usage main prints, and appends its summary", async () => {
+    const file = join(summaries, "help.md");
+    let usage = "";
+    const code = await main(["--help"], { stdout: (t) => void (usage += t), stderr: () => undefined });
+    expect(code).toBe(EXIT_OK);
+    expect(usage).not.toBe("");
+    const result = program(built, file, "--help");
+    expect(result.status).toBe(EXIT_OK);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(usage);
+    expect(readFileSync(file, "utf8")).toBe(jobSummary(0, usage));
+  });
+
+  it("prints nothing, says repo-truth: on stderr and exits 2 when the command cannot be loaded", () => {
+    const file = join(summaries, "broken.md");
+    const result = program(broken, file, "--help");
+    expect(result.status).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.startsWith("repo-truth: ")).toBe(true);
+    expect(result.stderr.trimEnd().split("\n")).toHaveLength(1);
   });
 });
