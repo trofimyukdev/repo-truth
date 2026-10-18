@@ -1,0 +1,126 @@
+id: RT-46
+repo: repo-truth
+priority: 43
+milestone: M0
+title: Suite strength, credentials - tests that fail on the defects the mutation probe found unasserted in src/checks/credentials.ts
+
+outcome: >
+  The factory measures how strong a check's tests are by planting small
+  defects in its module and counting the ones no test notices. The check
+  of credentials in added lines (RT-26) merged with such survivors:
+  defects in how git's own error reaches the evidence, in how a revision
+  that cannot be a commit is refused before git runs, in how a tilde is
+  printed, in how the text of a line the range adds to a file is read, and
+  in how a symbolic link is read - one the range adds, and one that
+  becomes a regular file. Each one is a way the check could break without
+  a test saying so. This task adds the tests that say so. It changes no
+  source file.
+
+  Written on 2026-10-18 under the operator's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. A change of
+  tests alone gives the factory's mutation probe nothing to mutate, so the
+  holdout is what shows these tests are strong: it plants the defects the
+  probe recorded as surviving back into the module and demands that the
+  suite turn red on each. The factory's gate refuses a candidate whose
+  added lines hold a text in a credential's form (its stage 1 scans for
+  secrets), so the suite builds every such text at run time from parts,
+  as it already does.
+
+measure:
+  - npx vitest run test/unit/credentials.test.ts
+
+not_done_if:
+  - "a behavior an acceptance item below names is not pinned by an assertion that fails when that behavior of src/checks/credentials.ts changes, so a defect planted in it leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/credentials.test.ts changes - the module, another test, a fixture committed beside the suite - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/credentials.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The suite test/unit/credentials.test.ts calls `check` of
+      src/checks/credentials.ts over real throwaway repositories, as its
+      existing cases do, and asserts the records it returns.
+  - type: behavior
+    statement: >
+      The suite pins these behaviors of `check`, each by an assertion that a
+      defect in it would change. Errors: a directory that exists and is not
+      a git repository yields a `fail` record whose evidence carries git's
+      own complaint, which says it is not a git repository, and not node's
+      wording of the failed command, which opens `Command failed`; a
+      revision that is empty, or that begins with a minus sign, yields one
+      whose evidence reads exactly `revision "<revision>" does not name a
+      commit`, before git runs; and a revision one character long that
+      names a commit, such as `@`, is resolved and judged like any other.
+  - type: behavior
+    statement: >
+      Lines and files: a tilde in the path of a file holding a credential,
+      the last printable ASCII character, is printed in the evidence as it
+      is; a line the range adds to a file the merge base already holds is
+      read without the diff's leading `+`, so an entry a consumer appends to
+      `CREDENTIAL_SHAPES` whose pattern is anchored at the line's start,
+      `^`, finds it, the list put back as it was after the test; a symbolic
+      link the range adds is not read, even when its target is in a
+      credential's form, so the range passes; and a path that is a symbolic
+      link at the merge base and a regular file at the candidate is read
+      whole, every line of the file as added, so a credential is reported
+      with its line when it sits on the file's last line, written with no
+      final newline, and that line is exactly the link's old target - a
+      line a diff of the link's old text and the file would not show as
+      added.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, so that a later edit of a fixture is
+      not read as a bound moved in a test. Fixtures are built at run time in
+      throwaway repositories under the operating system's temporary
+      directory and removed when the suite ends, whether it passed or not;
+      every text in a credential's form is built at run time from parts, so
+      no line of the test file holds one; a git that fails is made by the
+      repository the test builds, never by a stub on the path; nothing is
+      installed or fetched; and no test reads src/checks/credentials.ts as
+      text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-46.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/credentials.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-credentials]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
