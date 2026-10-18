@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -42,8 +42,24 @@ async function commit(cwd: string, files: Record<string, string | null>, message
   return git(cwd, ["rev-parse", "HEAD"]);
 }
 
+type Entry = string | { link: string } | null;
+
+async function commitEntries(cwd: string, files: Record<string, Entry>, message = "change"): Promise<string> {
+  for (const [file, entry] of Object.entries(files)) {
+    await rm(join(cwd, file), { force: true });
+    if (entry === null) continue;
+    await mkdir(dirname(join(cwd, file)), { recursive: true });
+    if (typeof entry === "string") await writeFile(join(cwd, file), entry);
+    else await symlink(entry.link, join(cwd, file));
+  }
+  await git(cwd, ["add", "-A"]);
+  await git(cwd, ["commit", "--quiet", "-m", message]);
+  return git(cwd, ["rev-parse", "HEAD"]);
+}
+
 describe("RT-24 raised timeouts", () => {
   let repo: string;
+  const extras: string[] = [];
 
   beforeEach(async () => {
     repo = await mkdtemp(join(tmpdir(), "repo-truth-timeouts-"));
@@ -52,6 +68,7 @@ describe("RT-24 raised timeouts", () => {
 
   afterEach(async () => {
     await rm(repo, { recursive: true, force: true });
+    for (const dir of extras.splice(0)) await rm(dir, { recursive: true, force: true });
   });
 
   async function run(
@@ -212,6 +229,145 @@ describe("RT-24 raised timeouts", () => {
     const record = await check({ cwd: join(repo, "does-not-exist"), base: "HEAD", candidate: "HEAD" });
     expect(record.status).toBe("fail");
     expect(record.evidence.length).toBeGreaterThan(0);
+  });
+
+  it("carries git's own complaint for a directory that is not a repository", async () => {
+    const plain = await mkdtemp(join(tmpdir(), "repo-truth-timeouts-plain-"));
+    extras.push(plain);
+    const record = await check({ cwd: plain, base: "HEAD", candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    const text = record.evidence.join("\n");
+    expect(text).toContain("not a git repository");
+    expect(text).not.toContain("Command failed");
+  });
+
+  it("refuses an empty revision or one beginning with a minus before git runs", async () => {
+    const good = await commit(repo, { "a.txt": "x\n" });
+    for (const bad of ["", "-x", "-"]) {
+      const asBase = await check({ cwd: repo, base: bad, candidate: good });
+      expect(asBase.status).toBe("fail");
+      expect(asBase.evidence).toEqual([`revision "${bad}" does not name a commit`]);
+      const asCandidate = await check({ cwd: repo, base: good, candidate: bad });
+      expect(asCandidate.status).toBe("fail");
+      expect(asCandidate.evidence).toEqual([`revision "${bad}" does not name a commit`]);
+    }
+  });
+
+  it("resolves a revision one character long", async () => {
+    const base = await commit(repo, { "w.test.ts": `jest.setTimeout(${SHORT});\n` }, "base");
+    await commit(repo, { "w.test.ts": `jest.setTimeout(${LONG});\n` }, "change");
+    const raised = await check({ cwd: repo, base, candidate: "@" });
+    expect(raised.status).toBe("fail");
+    expect(raised.findings.map((f) => f.category)).toEqual(["timeout-raised"]);
+    const same = await check({ cwd: repo, base: "@", candidate: "@" });
+    expect(same.status).toBe("pass");
+    expect(same.findings).toEqual([]);
+  });
+
+  it("prints a tilde in a path as it is", async () => {
+    const file = "t~.test.ts";
+    const record = await run({ [file]: `jest.setTimeout(${SHORT});\n` }, { [file]: `jest.setTimeout(${LONG});\n` });
+    expect(record.evidence[0]).toMatch(/^t~\.test\.ts:1: raised /);
+  });
+
+  it("reads a file that stops being a symbolic link whole", async () => {
+    const file = "l.test.ts";
+    const base = await commitEntries(repo, { [file]: { link: "elsewhere" } }, "base");
+    const candidate = await commitEntries(repo, { [file]: `// first\njest.setTimeout(${LONG});\n` });
+    const record = await check({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.findings.map((f) => [f.category, f.file, f.line])).toEqual([["timeout-added", file, 2]]);
+    expect(record.evidence[0]).toMatch(/^l\.test\.ts:2: added /);
+  });
+
+  it("reads nothing of a file that becomes a symbolic link or of a link that moves", async () => {
+    const became = "m.test.ts";
+    const moved = "n.test.ts";
+    const base = await commitEntries(
+      repo,
+      { [became]: `jest.setTimeout(${SHORT});\n`, [moved]: { link: `jest.setTimeout(${SHORT});` } },
+      "base",
+    );
+    const candidate = await commitEntries(repo, { [became]: { link: `jest.setTimeout(${LONG});` }, [moved]: { link: `jest.setTimeout(${LONG});` } });
+    const record = await check({ cwd: repo, base, candidate });
+    expect(record.status).toBe("pass");
+    expect(record.findings).toEqual([]);
+    expect(record.evidence).toEqual(["no timeout raised or added"]);
+  });
+
+  it("numbers lines in the candidate when the base's file lacks a final newline", async () => {
+    const file = "nl.test.ts";
+    const record = await run(
+      { [file]: `// one\n// two\njest.setTimeout(${SHORT});` },
+      { [file]: `// one\n// two\njest.setTimeout(${LONG});\n` },
+    );
+    expect(record.status).toBe("fail");
+    expect(record.findings.map((f) => [f.id, f.line])).toEqual([[`timeout-raised:${file}:3`, 3]]);
+    expect(record.evidence[0]).toMatch(/^nl\.test\.ts:3: raised /);
+  });
+
+  it("drops a match whose value holds no finite number", async () => {
+    const entry = { name: "wordy", files: /\.cfg$/, pattern: /(?<key>wait)=(?<value>\w+)/, example: "wait=5" };
+    const before = TIMEOUT_SPELLINGS.length;
+    TIMEOUT_SPELLINGS.push(entry);
+    try {
+      const raised = await run({ "w.cfg": `wait=${SHORT}\n` }, { "w.cfg": "wait=Infinity\n" });
+      expect(raised.status).toBe("pass");
+      expect(raised.findings).toEqual([]);
+      const added = await run({ "x.cfg": "other\n" }, { "x.cfg": "wait=soon\n" });
+      expect(added.status).toBe("pass");
+      expect(added.findings).toEqual([]);
+    } finally {
+      TIMEOUT_SPELLINGS.length = before;
+    }
+    expect(TIMEOUT_SPELLINGS).not.toContain(entry);
+  });
+
+  it("sanctions nothing by an empty or blank reason from the caller, and does by a one-character one", async () => {
+    const base = await commit(repo, { "s.test.ts": `jest.setTimeout(${SHORT});\n` }, "base");
+    const candidate = await commit(repo, { "s.test.ts": `jest.setTimeout(${LONG});\n` });
+    const id = "timeout-raised:s.test.ts:1";
+    for (const reason of ["", "   ", "\t \n"]) {
+      for (const key of [id, "timeout-raised:s.test.ts"]) {
+        const record = await check({ cwd: repo, base, candidate, sanctions: { [key]: reason } });
+        expect(record.status).toBe("fail");
+        expect(record.findings.map((f) => f.sanction)).toEqual([null]);
+        expect(record.evidence[0]).not.toContain("sanctioned");
+      }
+    }
+    for (const key of [id, "timeout-raised:s.test.ts"]) {
+      const record = await check({ cwd: repo, base, candidate, sanctions: { [key]: "y" } });
+      expect(record.status).toBe("pass");
+      expect(record.findings.map((f) => f.sanction)).toEqual(["y"]);
+      expect(record.evidence).toEqual(["s.test.ts:1: raised jest.setTimeout from 5000 to 30000 - sanctioned: y"]);
+    }
+    const padded = await check({ cwd: repo, base, candidate, sanctions: { [id]: "  padded  " } });
+    expect(padded.findings.map((f) => f.sanction)).toEqual(["padded"]);
+  });
+
+  it("prints the reason a commit message line gives, exactly", async () => {
+    const before = { "s.test.ts": `jest.setTimeout(${SHORT});\n` };
+    const after = { "s.test.ts": `jest.setTimeout(${LONG});\n` };
+    const tail = "s.test.ts:1: raised jest.setTimeout from 5000 to 30000 - sanctioned: ";
+    const byId = await run(before, after, { message: "slow\n\nSanctioned-Weakening:   timeout-raised:s.test.ts:1  the   fixture  is big  " });
+    expect(byId.status).toBe("pass");
+    expect(byId.evidence).toEqual([`${tail}the   fixture  is big`]);
+    await rm(join(repo, ".git"), { recursive: true, force: true });
+    await git(repo, ["init", "--quiet", "--initial-branch=main"]);
+    const byFile = await run(before, after, { message: "slow\n\nSanctioned-Weakening: timeout-raised:s.test.ts z" });
+    expect(byFile.status).toBe("pass");
+    expect(byFile.evidence).toEqual([`${tail}z`]);
+  });
+
+  it("leaves open a finding whose id is as long as the one a sanction line names", async () => {
+    const before = { "a.test.ts": "// a\n", "b.test.ts": "// b\n" };
+    const after = { "a.test.ts": `jest.setTimeout(${LONG});\n`, "b.test.ts": `jest.setTimeout(${LONG});\n` };
+    const record = await run(before, after, { message: "slow\n\nSanctioned-Weakening: timeout-added:a.test.ts:1 only this one" });
+    expect(record.status).toBe("fail");
+    expect(record.findings.map((f) => [f.id, f.sanction])).toEqual([
+      ["timeout-added:a.test.ts:1", "only this one"],
+      ["timeout-added:b.test.ts:1", null],
+    ]);
   });
 
   it("is the only record `repo-truth check --check RT-24` prints", async () => {
