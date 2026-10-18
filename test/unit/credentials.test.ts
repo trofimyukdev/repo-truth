@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -28,6 +28,7 @@ const HOST_TOKEN = ["gh", "p_"].join("") + rep("a", 36);
 const HOST_PAT = ["github", "_pat_"].join("") + rep("B_", 20);
 const CHAT_TOKEN = ["xo", "xb-"].join("") + rep("1", 12);
 const SECRET = rep("z", 24);
+const SECOND_LINE = 2;
 const assign = (word: string, value: string, sep = " = ", quote = '"'): string => `${word}${sep}${quote}${value}${quote}`;
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
@@ -189,6 +190,73 @@ describe("RT-26 credentials", () => {
     const record = await check({ cwd: join(repo, "does-not-exist"), base: "HEAD", candidate: "HEAD" });
     expect(record.status).toBe("fail");
     expect(record.evidence.length).toBeGreaterThan(0);
+  });
+
+  it("carries git's own complaint when the directory is not a repository", async () => {
+    const plain = await mkdtemp(join(tmpdir(), "repo-truth-credentials-plain-"));
+    try {
+      const record = await check({ cwd: plain, base: "HEAD", candidate: "HEAD" });
+      expect(record.status).toBe("fail");
+      const text = record.evidence.join("\n");
+      expect(text).toContain("not a git repository");
+      expect(text).not.toContain("Command failed");
+    } finally {
+      await rm(plain, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an empty revision or one that begins with a minus sign before git runs", async () => {
+    const good = await commit(repo, { "a.txt": "x\n" });
+    for (const bad of ["", "-x", "--output=x"]) {
+      const expected = { name: "RT-26", status: "fail", evidence: [`revision "${bad}" does not name a commit`] };
+      expect(await check({ cwd: repo, base: bad, candidate: good })).toEqual(expected);
+      expect(await check({ cwd: repo, base: good, candidate: bad })).toEqual(expected);
+    }
+  });
+
+  it("resolves a revision one character long", async () => {
+    const first = await commit(repo, { "a.txt": "x\n" }, "base");
+    const second = await commit(repo, { "a.txt": `x\n${ACCESS_KEY}\n` }, "change");
+    await git(repo, ["checkout", "--quiet", first]);
+    const asBase = await check({ cwd: repo, base: "@", candidate: second });
+    expect(asBase.evidence).toEqual([`a.txt:${SECOND_LINE}: cloud access key id`]);
+    await git(repo, ["checkout", "--quiet", second]);
+    const asCandidate = await check({ cwd: repo, base: first, candidate: "@" });
+    expect(asCandidate.evidence).toEqual([`a.txt:${SECOND_LINE}: cloud access key id`]);
+    const same = await check({ cwd: repo, base: "@", candidate: "@" });
+    expect(same.status).toBe("pass");
+  });
+
+  it("prints a tilde in a path as it is", async () => {
+    const record = await run({ "a.txt": "x\n" }, { "a~b.txt": `${ACCESS_KEY}\n` });
+    expect(record.evidence).toEqual(["a~b.txt:1: cloud access key id"]);
+  });
+
+  it("reads a line added to an existing file without the diff's plus sign", async () => {
+    CREDENTIAL_SHAPES.push({ name: "anchored", pattern: /^zzanchor\d+/ });
+    try {
+      const record = await run({ "a.txt": "x\n" }, { "a.txt": "x\nzzanchor7\n" });
+      expect(record.evidence).toEqual([`a.txt:${SECOND_LINE}: anchored`]);
+    } finally {
+      CREDENTIAL_SHAPES.pop();
+    }
+  });
+
+  it("does not read a symbolic link the range adds", async () => {
+    const base = await commit(repo, { "a.txt": "x\n" }, "base");
+    await symlink(ACCESS_KEY, join(repo, "link"));
+    const candidate = await commit(repo, {}, "link");
+    const record = await check({ cwd: repo, base, candidate });
+    expect(record.status).toBe("pass");
+  });
+
+  it("reads a path that was a symbolic link and is a regular file whole", async () => {
+    await symlink(ACCESS_KEY, join(repo, "link"));
+    const base = await commit(repo, { "a.txt": "x\n" }, "base");
+    await rm(join(repo, "link"));
+    const candidate = await commit(repo, { link: `first\n${ACCESS_KEY}` }, "file");
+    const record = await check({ cwd: repo, base, candidate });
+    expect(record.evidence).toEqual([`link:${SECOND_LINE}: cloud access key id`]);
   });
 
   it("is the only record `repo-truth check --check RT-26` prints", async () => {
