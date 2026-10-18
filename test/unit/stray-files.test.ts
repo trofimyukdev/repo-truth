@@ -10,6 +10,9 @@ import { STRAY_SHAPES, checkStrayFiles } from "../../src/stray-files.js";
 
 const execFileAsync = promisify(execFile);
 
+const ID_PREFIX = 12;
+const GLOBAL_MATCHES = 2;
+
 const ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: "Test Author",
@@ -36,6 +39,7 @@ async function commitFiles(cwd: string, names: readonly string[]): Promise<strin
 describe("checkStrayFiles", () => {
   let repo: string;
   let base: string;
+  const extraDirs: string[] = [];
 
   beforeEach(async () => {
     repo = await mkdtemp(join(tmpdir(), "repo-truth-stray-files-"));
@@ -45,6 +49,9 @@ describe("checkStrayFiles", () => {
 
   afterEach(async () => {
     await rm(repo, { recursive: true, force: true });
+    for (const dir of extraDirs.splice(0)) {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("passes a range of ordinary files", async () => {
@@ -145,5 +152,85 @@ describe("checkStrayFiles", () => {
     const record = await checkStrayFiles({ cwd: join(repo, "missing"), base: "HEAD", candidate: "HEAD" });
     expect(record.status).toBe("fail");
     expect(record.evidence.length).toBeGreaterThan(0);
+  });
+
+  it("carries git's own complaint for a directory that is not a repository", async () => {
+    const plain = await mkdtemp(join(tmpdir(), "repo-truth-stray-plain-"));
+    extraDirs.push(plain);
+    const record = await checkStrayFiles({ cwd: plain, base: "HEAD", candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    const text = record.evidence.join("\n");
+    expect(text).toContain("not a git repository");
+    expect(text).not.toContain("Command failed");
+  });
+
+  it("names the git command when a revision cannot be found", async () => {
+    const record = await checkStrayFiles({ cwd: repo, base: "no-such-branch", candidate: "HEAD" });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]?.startsWith('revision "no-such-branch" names no commit: ')).toBe(true);
+    expect(record.evidence[0]).toContain("no-such-branch^{commit}");
+  });
+
+  it.each([
+    ["", "HEAD", ""],
+    ["-x", "HEAD", "-x"],
+    ["HEAD", "", ""],
+    ["HEAD", "-x", "-x"],
+  ])("refuses revisions %j and %j before git runs", async (a, b, bad) => {
+    const record = await checkStrayFiles({ cwd: repo, base: a, candidate: b });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual([`revision "${bad}" names no commit`]);
+  });
+
+  it("refuses an empty revision even where git cannot run", async () => {
+    const record = await checkStrayFiles({ cwd: join(repo, "missing"), base: "", candidate: "HEAD" });
+    expect(record.evidence).toEqual(['revision "" names no commit']);
+  });
+
+  it("resolves a revision one character long that names a commit", async () => {
+    const stray = await commitFiles(repo, ["debug.log"]);
+    const failing = await checkStrayFiles({ cwd: repo, base, candidate: "@" });
+    expect(failing.status).toBe("fail");
+    expect(failing.evidence.some((line) => line.includes("debug.log") && line.includes("log-file"))).toBe(true);
+    const passing = await checkStrayFiles({ cwd: repo, base: "@", candidate: stray });
+    expect(passing.status).toBe("pass");
+  });
+
+  it("names two commits that share no history", async () => {
+    await git(repo, ["checkout", "--quiet", "--orphan", "unrelated"]);
+    await git(repo, ["rm", "-rf", "--quiet", "."]);
+    const orphan = await commitFiles(repo, ["other.md"]);
+    const record = await checkStrayFiles({ cwd: repo, base, candidate: orphan });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    const prefix = `no merge base of ${base.slice(0, ID_PREFIX)} and ${orphan.slice(0, ID_PREFIX)}: `;
+    expect(record.evidence[0]?.startsWith(prefix)).toBe(true);
+    expect(record.evidence[0]).toContain("git merge-base");
+  });
+
+  it("escapes characters outside printable ASCII and keeps a tilde", async () => {
+    const candidate = await commitFiles(repo, ["café.log", "tab\there.log", "notes.txt~"]);
+    const record = await checkStrayFiles({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence.some((l) => l.startsWith('"caf\\u{00e9}.log" matches stray shape "log-file"'))).toBe(true);
+    expect(record.evidence.some((l) => l.startsWith('"tab\\u{0009}here.log" matches'))).toBe(true);
+    expect(record.evidence.some((l) => l.startsWith('"notes.txt~" matches stray shape "editor-backup"'))).toBe(true);
+  });
+
+  it("reports every path a global anchored shape matches", async () => {
+    const candidate = await commitFiles(repo, ["zzz-one.txt", "zzz-two.txt", "other.txt"]);
+    const added = { name: "zzz-file", description: "test shape", pattern: /^zzz/g };
+    STRAY_SHAPES.push(added);
+    try {
+      const record = await checkStrayFiles({ cwd: repo, base, candidate });
+      expect(record.status).toBe("fail");
+      const hits = record.evidence.filter((l) => l.includes('"zzz-file"'));
+      expect(hits).toHaveLength(GLOBAL_MATCHES);
+      expect(hits.some((l) => l.includes("zzz-one.txt"))).toBe(true);
+      expect(hits.some((l) => l.includes("zzz-two.txt"))).toBe(true);
+    } finally {
+      STRAY_SHAPES.splice(STRAY_SHAPES.indexOf(added), 1);
+    }
   });
 });
