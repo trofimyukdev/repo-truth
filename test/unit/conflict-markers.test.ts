@@ -232,4 +232,117 @@ describe("checkConflictMarkers", () => {
     expect(record.status).toBe("fail");
     expect(record.evidence).toHaveLength(1);
   });
+
+  it("reports git's own complaint when the directory is not a repository", async () => {
+    const plain = await mkdtemp(join(tmpdir(), "repo-truth-conflict-markers-plain-"));
+    try {
+      const record = await checkConflictMarkers({ cwd: plain, base: "main", candidate: "main" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      expect(record.evidence[0]).toMatch(/not a git repository/i);
+      expect(record.evidence[0]).not.toMatch(/Command failed/);
+    } finally {
+      await rm(plain, { recursive: true, force: true });
+    }
+  });
+
+  it("names the failed git command when git exits without a word", async () => {
+    const candidate = await commit(repo, { "a.ts": lines("export {};") });
+    const missing = await checkConflictMarkers({ cwd: repo, base: "no-such-branch", candidate });
+    expect(missing.status).toBe("fail");
+    expect(missing.evidence).toHaveLength(1);
+    expect(missing.evidence[0]?.startsWith('revision "no-such-branch" names no commit: ')).toBe(true);
+    expect(missing.evidence[0]).toContain("no-such-branch^{commit}");
+    const other = await checkConflictMarkers({ cwd: repo, base, candidate: "gone-too" });
+    expect(other.evidence[0]?.startsWith('revision "gone-too" names no commit: ')).toBe(true);
+    expect(other.evidence[0]).toContain("gone-too^{commit}");
+  });
+
+  it("refuses an empty revision or one beginning with a minus before git runs", async () => {
+    const candidate = await commit(repo, { "a.ts": lines("export {};") });
+    const cases = [
+      { b: "", c: candidate, text: 'revision "" names no commit' },
+      { b: base, c: "", text: 'revision "" names no commit' },
+      { b: "-x", c: candidate, text: 'revision "-x" names no commit' },
+      { b: base, c: "--output=x", text: 'revision "--output=x" names no commit' },
+      { b: "-", c: candidate, text: 'revision "-" names no commit' },
+    ];
+    for (const { b, c, text } of cases) {
+      const record = await checkConflictMarkers({ cwd: repo, base: b, candidate: c });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([text]);
+    }
+  });
+
+  it("resolves a revision one character long that names a commit", async () => {
+    const dirty = await commit(repo, { "m.md": lines(`${OPEN} HEAD`) });
+    const failing = await checkConflictMarkers({ cwd: repo, base, candidate: "@" });
+    expect(failing.status).toBe("fail");
+    expect(failing.evidence).toEqual(["m.md:1: opening marker"]);
+    const passing = await checkConflictMarkers({ cwd: repo, base: "@", candidate: dirty });
+    expect(passing.status).toBe("pass");
+    expect(passing.evidence).toEqual([`0 added line(s) in "@"..."${dirty}" hold no conflict marker`]);
+  });
+
+  it("escapes control characters in a path and prints every other character as it is", async () => {
+    const escaped = new Set<number>();
+    for (let code = 0x01; code < 0x20; code += 1) escaped.add(code);
+    escaped.add(0x7f);
+    for (let code = 0x80; code < 0xa0; code += 1) escaped.add(code);
+    const plain = [0x20, 0x7e, 0xa0, 0xa1, 0xe9, 0x4e2d];
+    const files: Record<string, string> = {};
+    const expected: string[] = [];
+    for (const code of [...escaped, ...plain]) {
+      const char = String.fromCodePoint(code);
+      const label = escaped.has(code) ? `\\u{${code.toString(16).padStart(4, "0")}}` : char;
+      files[`p${char}q.txt`] = lines(`${OPEN} HEAD`);
+      expected.push(`p${label}q.txt:1: opening marker`);
+    }
+    const candidate = await commit(repo, files);
+    const record = await checkConflictMarkers({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect([...record.evidence].sort()).toEqual([...expected].sort());
+    expect(record.evidence).toContain("p\\u{0009}q.txt:1: opening marker");
+    expect(record.evidence).toContain("péq.txt:1: opening marker");
+  });
+
+  it("still reads the files after one whose change removes lines", async () => {
+    const deleteRows = 6;
+    const old = await commit(repo, {
+      "a-replace.txt": lines("keep", `${OPEN} old`, "tail"),
+      "b-delete.txt": lines(...Array.from({ length: deleteRows }, (_, i) => `row ${i}`)),
+      "c-single.txt": lines("one", "two", "three"),
+      "d-both.txt": lines("p", "q", "r", "s"),
+    });
+    const candidate = await commit(repo, {
+      "a-replace.txt": lines("keep", "new", "tail"),
+      "b-delete.txt": lines("row 0", "row 1", "row 5"),
+      "c-single.txt": lines("one", "three"),
+      "d-both.txt": lines("p", "x", "r", "y"),
+      "e-block.txt": lines("intro", `${OPEN} HEAD`, "ours", SEP, "theirs", `${CLOSE} x`),
+    });
+    const record = await checkConflictMarkers({ cwd: repo, base: old, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual([
+      "e-block.txt:2: opening marker",
+      "e-block.txt:4: separator marker",
+      "e-block.txt:6: closing marker",
+    ]);
+  });
+
+  it("states the number of lines the range adds when it passes", async () => {
+    const fileCount = 3;
+    const rowsPerFile = 4;
+    const files: Record<string, string> = {};
+    let written = 0;
+    for (let f = 0; f < fileCount; f += 1) {
+      const rows = Array.from({ length: rowsPerFile + f }, (_, i) => `file ${f} row ${i}`);
+      written += rows.length;
+      files[`n${f}.txt`] = lines(...rows);
+    }
+    const candidate = await commit(repo, files);
+    const record = await checkConflictMarkers({ cwd: repo, base, candidate });
+    expect(record.status).toBe("pass");
+    expect(record.evidence).toEqual([`${written} added line(s) in "${base}"..."${candidate}" hold no conflict marker`]);
+  });
 });
