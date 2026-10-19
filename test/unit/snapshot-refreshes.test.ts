@@ -224,6 +224,158 @@ describe("checkSnapshotRefreshes", () => {
     expect(record.evidence.length).toBeGreaterThan(0);
   });
 
+  describe("errors", () => {
+    it("carries git's own complaint for a directory that is not a repository", async () => {
+      const plain = await mkdtemp(join(tmpdir(), "repo-truth-plain-"));
+      try {
+        const record = await checkSnapshotRefreshes({ cwd: plain, base: "HEAD", candidate: "HEAD" });
+        expect(record.status).toBe("fail");
+        const text = record.evidence.join("\n");
+        expect(text).toMatch(/not a git repository/);
+        expect(text).not.toContain("Command failed");
+      } finally {
+        await rm(plain, { recursive: true, force: true });
+      }
+    });
+
+    it("names the git command when git fails without a word", async () => {
+      const base = await commit(repo, { "a.txt": "a\n" }, "base");
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate: "no-such-branch" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      const text = record.evidence[0] ?? "";
+      expect(text.startsWith('revision "no-such-branch" does not name a commit: ')).toBe(true);
+      expect(text).toContain("no-such-branch^{commit}");
+    });
+
+    it("refuses an empty revision before git runs", async () => {
+      const base = await commit(repo, { "a.txt": "a\n" }, "base");
+      const asBase = await checkSnapshotRefreshes({ cwd: repo, base: "", candidate: base });
+      expect(asBase).toEqual({ name: "RT-16", status: "fail", evidence: ['revision "" does not name a commit'] });
+      const asCandidate = await checkSnapshotRefreshes({ cwd: repo, base, candidate: "" });
+      expect(asCandidate).toEqual({ name: "RT-16", status: "fail", evidence: ['revision "" does not name a commit'] });
+    });
+
+    it("refuses a revision that begins with a minus sign before git runs", async () => {
+      const base = await commit(repo, { "a.txt": "a\n" }, "base");
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate: "-x" });
+      expect(record).toEqual({ name: "RT-16", status: "fail", evidence: ['revision "-x" does not name a commit'] });
+    });
+
+    it("resolves a revision one character long", async () => {
+      const base = await commit(repo, { "src/a.ts": "a\n" }, "base");
+      await commit(repo, { "src/a.ts": "b\n" });
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate: "@" });
+      expect(record).toEqual({ name: "RT-16", status: "pass", evidence: ["no snapshot refreshed or deleted"] });
+    });
+  });
+
+  describe("paths and shapes", () => {
+    it("prints a tilde as it is", async () => {
+      const record = await run({ "notes~.snap": BODY }, { "notes~.snap": CHANGED });
+      expect(record.evidence[0]?.startsWith("notes~.snap:")).toBe(true);
+    });
+
+    it("applies a shape with the global flag and puts its lastIndex back", async () => {
+      const shape = /^golden\//g;
+      shape.lastIndex = 5;
+      SNAPSHOT_PATHS.push(shape);
+      try {
+        const record = await run(
+          { "golden/out.txt": BODY, "golden/two.txt": BODY },
+          { "golden/out.txt": CHANGED, "golden/two.txt": CHANGED },
+        );
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toHaveLength(2);
+        expect(record.evidence[0]?.startsWith("golden/out.txt:")).toBe(true);
+        expect(record.evidence[1]?.startsWith("golden/two.txt:")).toBe(true);
+        expect(shape.lastIndex).toBe(0);
+      } finally {
+        SNAPSHOT_PATHS.splice(SNAPSHOT_PATHS.indexOf(shape), 1);
+      }
+    });
+
+    it("reads a path that begins with a colon as a path", async () => {
+      const base = await commit(repo, { "a.snap": BODY }, "base");
+      const candidate = await commit(repo, { "a.snap": CHANGED, ":a.test.ts": "x\n" });
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual(["a.snap: refreshed - awaiting a sanction"]);
+    });
+
+    it("does not report a snapshot renamed from a colon path with its content unchanged", async () => {
+      const base = await commit(repo, { ":a b c d.snap": BODY }, "base");
+      await git(repo, ["mv", ":a b c d.snap", "e.snap"]);
+      const candidate = await commit(repo, {});
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate });
+      expect(record).toEqual({ name: "RT-16", status: "pass", evidence: ["no snapshot refreshed or deleted"] });
+    });
+  });
+
+  describe("commits beside a code change", () => {
+    it("names the commit that changed the snapshot, not a later rename", async () => {
+      const base = await commit(repo, { "a.snap": BODY, "src/x.ts": "x\n", "src/y.ts": "y\n" }, "base");
+      await git(repo, ["mv", "a.snap", "b.snap"]);
+      const first = await commit(repo, { "b.snap": CHANGED, "src/x.ts": "x2\n" }, "first");
+      await git(repo, ["mv", "b.snap", "c.snap"]);
+      const second = await commit(repo, { "src/y.ts": "y2\n" }, "second");
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate: second });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`c.snap: refreshed beside a code change in ${first} - awaiting a sanction`]);
+    });
+
+    it("names a commit that deletes the snapshot beside a code change", async () => {
+      const base = await commit(repo, { "a.snap": BODY, "src/x.ts": "x\n" }, "base");
+      const candidate = await commit(repo, { "a.snap": null, "src/x.ts": "x2\n" });
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate });
+      expect(record.evidence).toEqual([`a.snap: deleted beside a code change in ${candidate} - awaiting a sanction`]);
+    });
+
+    it("counts a source file renamed into a test file as a code change", async () => {
+      const base = await commit(repo, { "a.snap": BODY, "src/foo.ts": BODY }, "base");
+      await git(repo, ["mv", "src/foo.ts", "src/foo.test.ts"]);
+      const candidate = await commit(repo, { "a.snap": CHANGED });
+      const record = await checkSnapshotRefreshes({ cwd: repo, base, candidate });
+      expect(record.evidence).toEqual([`a.snap: refreshed beside a code change in ${candidate} - awaiting a sanction`]);
+    });
+  });
+
+  describe("sanctions", () => {
+    it("does not take a blank reason as a sanction", async () => {
+      const base = await commit(repo, { "a.snap": BODY }, "base");
+      const candidate = await commit(repo, { "a.snap": CHANGED });
+      for (const reason of ["", "   "]) {
+        const record = await checkSnapshotRefreshes({
+          cwd: repo,
+          base,
+          candidate,
+          sanctions: { "snapshot-refreshed:a.snap": reason },
+        });
+        expect(record.status).toBe("fail");
+        expect(record.evidence[0]).toBe("a.snap: refreshed - awaiting a sanction");
+      }
+    });
+
+    it("takes a reason one character long", async () => {
+      const record = await run({ "a.snap": BODY }, { "a.snap": CHANGED }, { sanctions: { "snapshot-refreshed:a.snap": "x" } });
+      expect(record.status).toBe("pass");
+      expect(record.evidence[0]).toBe("a.snap: refreshed - sanctioned: x");
+    });
+
+    it("lets a sanction line name one finding", async () => {
+      const record = await run(
+        { "a.snap": BODY, "b.snap": BODY },
+        { "a.snap": CHANGED, "b.snap": CHANGED },
+        { message: "refresh\n\nSanctioned-Weakening: snapshot-refreshed:a.snap meant to change" },
+      );
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([
+        "a.snap: refreshed - sanctioned: meant to change",
+        "b.snap: refreshed - awaiting a sanction",
+      ]);
+    });
+  });
+
   it("is registered as RT-16", () => {
     expect(REGISTRY.map((entry) => entry.name)).toContain("RT-16");
   });
