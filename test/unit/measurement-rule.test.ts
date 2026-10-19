@@ -179,4 +179,129 @@ describe("checkMeasurementRule", () => {
     expect(result.status).toBe("fail");
     expect(result.evidence.length).toBeGreaterThan(0);
   });
+
+  describe("pinned behaviors", () => {
+    const FIGURE = "12 ms";
+    const HIDDEN = "40 tests";
+    const SECOND = "7 errors";
+    const TICKS = "```";
+
+    const fenced = (...lines: string[]) => `perf\n\n${lines.join("\n")}`;
+
+    it("words a revision that names no commit exactly", async () => {
+      const result = await run("no-such-branch");
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toEqual(["revision no-such-branch names no commit"]);
+    });
+
+    it("resolves a one character revision like any other", async () => {
+      await commit(repo, `perf\n\nThe parser takes ${FIGURE}.`);
+      const result = await run("@");
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("reports git's own complaint when the histories share nothing", async () => {
+      await git(repo, ["checkout", "--quiet", "--orphan", "unrelated"]);
+      const orphan = await commit(repo, "unrelated root");
+      const result = await run(orphan);
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(1);
+      const line = result.evidence[0] ?? "";
+      expect(line.startsWith(`git failed while reading ${base}..${orphan}: `)).toBe(true);
+      expect(line).toMatch(/no merge base/i);
+      expect(line).not.toContain("Command failed");
+    });
+
+    it("reads the prose after a plain fence again", async () => {
+      const sha = await commit(repo, fenced(TICKS, "npm run bench", TICKS, `It takes ${FIGURE}.`));
+      const result = await run(sha);
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("keeps every line of a multi-line fence out of the prose", async () => {
+      const sha = await commit(repo, fenced(TICKS, "first", `ran ${HIDDEN}`, `ran ${SECOND}`, `took ${FIGURE}`, TICKS));
+      expect((await run(sha)).status).toBe("pass");
+    });
+
+    it.each([1, 2, 3])("closes a fence with a closing run indented by %i spaces", async (indent) => {
+      const sha = await commit(repo, fenced(TICKS, `ran ${HIDDEN}`, " ".repeat(indent) + TICKS, `It takes ${FIGURE}.`));
+      const result = await run(sha);
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it.each([1, 2, 3])("opens a fence with an opening run indented by %i spaces", async (indent) => {
+      const sha = await commit(repo, fenced(" ".repeat(indent) + TICKS, `ran ${HIDDEN}`, TICKS, `It takes ${FIGURE}.`));
+      const result = await run(sha);
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("does not close a four backtick fence with a shorter indented run", async () => {
+      const long = TICKS + "`";
+      const inside = await commit(repo, fenced(long, " " + TICKS, `ran ${HIDDEN}`, long));
+      expect((await run(inside)).status).toBe("pass");
+      const after = await commit(repo, fenced(long, " " + TICKS, `ran ${HIDDEN}`, long, `It takes ${FIGURE}.`));
+      const result = await checkMeasurementRule({ cwd: repo, base: inside, candidate: after });
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("reads a later paragraph of an added document on its own", async () => {
+      const sha = await commit(repo, "docs", {
+        "docs/x.md": `# T\n\nIt takes ${HIDDEN}. Run \`npm run bench\` on 2026-10-02.\n\nLater it takes ${FIGURE}.\n`,
+      });
+      const result = await run(sha);
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain("docs/x.md:5");
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("reads a one line last paragraph that has no trailing newline", async () => {
+      const sha = await commit(repo, "docs", { "docs/x.md": `# T\n\nIntro.\n\nIt takes ${FIGURE}.` });
+      const result = await run(sha);
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain("docs/x.md:5");
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("reads a single added line of an existing document", async () => {
+      const sha = await commit(repo, "docs", {
+        "README.md": `# Title\n\nSome prose written long ago, 99 files.\nIt takes ${FIGURE}.\n`,
+      });
+      const result = await run(sha);
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(1);
+      expect(result.evidence[0]).toContain("README.md:4");
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+    });
+
+    it("reads the first and the last line of a run of added lines", async () => {
+      const sha = await commit(repo, "docs", {
+        "README.md": `# Title\n\nSome prose written long ago, 99 files.\nIt takes ${FIGURE}.\nThere are ${SECOND}.\n`,
+      });
+      const result = await run(sha);
+      expect(result.status).toBe("fail");
+      expect(result.evidence).toHaveLength(2);
+      expect(result.evidence[0]).toContain("README.md:4");
+      expect(result.evidence[0]).toContain(`figure "${FIGURE}"`);
+      expect(result.evidence[1]).toContain("README.md:5");
+      expect(result.evidence[1]).toContain(`figure "${SECOND}"`);
+    });
+
+    it("leaves an old line unreported when the range adds a line directly before it", async () => {
+      const sha = await commit(repo, "docs", {
+        "README.md": "# Title\n\nAn added line.\nSome prose written long ago, 99 files.\n",
+      });
+      const result = await run(sha);
+      expect(result.evidence).toEqual(expect.any(Array));
+      expect(result.status).toBe("pass");
+    });
+  });
 });
