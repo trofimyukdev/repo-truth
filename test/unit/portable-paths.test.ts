@@ -10,6 +10,10 @@ import { checkPortablePaths } from "../../src/portable-paths.js";
 
 const execFileAsync = promisify(execFile);
 
+const ID_LENGTH = 12;
+const TOP_LEVEL_NAMES = 1;
+const NESTED_NAMES = 2;
+
 const ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: "Test Author",
@@ -37,6 +41,7 @@ async function commitFiles(cwd: string, names: readonly string[], message = "add
 describe("checkPortablePaths", () => {
   let repo: string;
   let base: string;
+  const extraDirs: string[] = [];
 
   beforeEach(async () => {
     repo = await mkdtemp(join(tmpdir(), "repo-truth-portable-paths-"));
@@ -47,6 +52,9 @@ describe("checkPortablePaths", () => {
 
   afterEach(async () => {
     await rm(repo, { recursive: true, force: true });
+    for (const dir of extraDirs.splice(0)) {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("passes a range whose names are portable", async () => {
@@ -278,5 +286,122 @@ describe("checkPortablePaths", () => {
 
     expect(record.status).toBe("fail");
     expect(record.evidence.join("\n")).toContain("merge base");
+  });
+
+  it("carries git's own complaint for a directory that is not a repository", async () => {
+    const plain = await mkdtemp(join(tmpdir(), "repo-truth-portable-paths-plain-"));
+    extraDirs.push(plain);
+
+    const record = await checkPortablePaths({ cwd: plain, base: "main", candidate: "main" });
+
+    expect(record.status).toBe("fail");
+    const text = record.evidence.join("\n");
+    expect(text).toContain("not a git repository");
+    expect(text).not.toContain("Command failed");
+  });
+
+  it("names the git command when a revision cannot be found", async () => {
+    const record = await checkPortablePaths({ cwd: repo, base: "no-such-branch", candidate: base });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]?.startsWith('revision "no-such-branch" names no commit: ')).toBe(true);
+    expect(record.evidence[0]).toContain("no-such-branch^{commit}");
+  });
+
+  it("refuses an empty revision before git runs", async () => {
+    const record = await checkPortablePaths({ cwd: repo, base: "", candidate: base });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual(['revision "" names no commit']);
+  });
+
+  it("refuses a revision that begins with a minus sign", async () => {
+    const record = await checkPortablePaths({ cwd: repo, base, candidate: "-x" });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual(['revision "-x" names no commit']);
+  });
+
+  it("resolves a revision one character long", async () => {
+    await commitFiles(repo, ["one.ts"]);
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate: "@" });
+
+    expect(record.status).toBe("pass");
+    expect(record.evidence).toEqual([`${TOP_LEVEL_NAMES} name(s) introduced in "${base}".."@", all portable`]);
+  });
+
+  it("names the two commits and the git command when they share no history", async () => {
+    await git(repo, ["checkout", "--quiet", "--orphan", "other"]);
+    const candidate = await commitFiles(repo, ["other.ts"], "unrelated");
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    const prefix = `no merge base of ${base.slice(0, ID_LENGTH)} and ${candidate.slice(0, ID_LENGTH)}: `;
+    expect(record.evidence[0]?.startsWith(prefix)).toBe(true);
+    expect(record.evidence[0]).toContain("git merge-base");
+  });
+
+  it("names the candidate when its tree cannot be read", async () => {
+    const candidate = await commitFiles(repo, ["tree-gone.ts"]);
+    const tree = await git(repo, ["rev-parse", `${candidate}^{tree}`]);
+    await rm(join(repo, ".git", "objects", tree.slice(0, 2), tree.slice(2)), { force: true });
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]?.startsWith(`could not read the tree of ${candidate.slice(0, ID_LENGTH)}: `)).toBe(true);
+  });
+
+  it("prints a tilde as it is", async () => {
+    const candidate = await commitFiles(repo, ["notes~."]);
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]).toContain('"notes~."');
+    expect(record.evidence[0]).toContain("[trailing]");
+  });
+
+  it("judges a name one character long", async () => {
+    const candidate = await commitFiles(repo, ["?"]);
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    expect(record.evidence[0]).toContain('"?"');
+    expect(record.evidence[0]).toContain("[character]");
+  });
+
+  it("counts a new file at the top of the tree as one name", async () => {
+    const candidate = await commitFiles(repo, ["top.ts"]);
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("pass");
+    expect(record.evidence).toEqual([
+      `${TOP_LEVEL_NAMES} name(s) introduced in "${base}".."${candidate}", all portable`,
+    ]);
+  });
+
+  it("counts a new file in a new directory as two names", async () => {
+    const candidate = await commitFiles(repo, ["fresh/inner.ts"]);
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("pass");
+    expect(record.evidence).toEqual([`${NESTED_NAMES} name(s) introduced in "${base}".."${candidate}", all portable`]);
+  });
+
+  it("says so when a range introduces no name", async () => {
+    const record = await checkPortablePaths({ cwd: repo, base, candidate: base });
+
+    expect(record.evidence).toEqual([`no name introduced in "${base}".."${base}"`]);
   });
 });
