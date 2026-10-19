@@ -63,7 +63,8 @@ to the job summary.
 
 - More checks: a CI workflow that is weakened, binary files the range adds.
 - Suite-strength tasks for the remaining modules, starting with conflict markers (RT-43), stray
-  files (RT-44), raised timeouts (RT-45) and credentials (RT-46).
+  files (RT-44), raised timeouts (RT-45) and credentials (RT-46); then the measurement rule
+  (RT-47), snapshot refreshes (RT-48), portable paths (RT-49) and weakened tests (RT-50).
 
 Done when at least twenty-two checks are registered and the factory has made at least forty
 verified merges here.
