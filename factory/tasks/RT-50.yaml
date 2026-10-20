@@ -30,6 +30,14 @@ outcome: >
   marker the suite writes into a fixture sits in a string that opens and
   closes on that same line, as the suite's existing cases do.
 
+  Reissued on 2026-10-21, after the first version was set aside: its fix
+  cycle did not fit a tick, and the factory's reason for setting it aside
+  named splitting the task as the road. One behavior the first version
+  asked for - a skip line the range moves within one test file while a
+  document listed before that file gains the same line - is now RT-51, a
+  task of its own with a test file of its own. This version asks for every
+  other behavior of the first one, unchanged.
+
 measure:
   - npx vitest run test/unit/weakened-tests.test.ts
 
@@ -93,12 +101,10 @@ acceptance:
       Moves: two identical assertions removed from one test and one of
       them added back elsewhere in it, so that git's diff shows both
       removed and one added - `expect(a).toBe(1);` twice before a line that
-      stays, once after it - yield one `assertion-removed` finding; a skip line the
-      range removes from a file outside the marker's scope, a document, and
-      adds to a test file is reported, since only a marker can move; and a
-      skip line the range moves within one test file, while the same line
-      is also added to a document listed before that file, is still a move
-      and yields no `skip` finding.
+      stays, once after it - yield one `assertion-removed` finding; and a skip
+      line the range removes from a file outside the marker's scope, a
+      document, and adds to a test file is reported, since only a marker can
+      move.
   - type: behavior
     statement: >
       Git's listing and links: a file renamed with its content unchanged to

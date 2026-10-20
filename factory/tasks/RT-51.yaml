@@ -1,0 +1,113 @@
+id: RT-51
+repo: repo-truth
+priority: 38
+milestone: M0
+title: Suite strength, weakened tests - a test file of its own for a skip line moved within a test file while a document gains the same line
+
+outcome: >
+  The factory measures how strong a check's tests are by planting small
+  defects in its module and counting the ones no test notices. The check
+  of weakened tests (RT-04) reports the skip and focus markers a range
+  adds, less the ones it only moves: a marker line the range removes and
+  adds back unchanged is a move, not a new marker. One behavior of that
+  rule is a way the check could break without a test saying so: a skip
+  line the range moves within one test file, while the same line is also
+  added to a document listed before that file, is still a move. This task
+  adds a test file of its own, test/unit/weakened-tests-moves.test.ts,
+  that says so. It changes no source file and no other test.
+
+  The behavior was one of RT-50's until 2026-10-21, when RT-50 was
+  reissued without it so that each task fits a tick; its wording below is
+  RT-50's own. Written under the operator's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. A change of
+  tests alone gives the factory's mutation probe nothing to mutate, so the
+  holdout is what shows the new tests are strong: it plants defects of
+  this behavior into the module and demands that the new suite turn red
+  on each. No line of the test file may itself read as a skip or focus
+  marker once its quoted strings are set aside, so every marker the suite
+  writes into a fixture sits in a string that opens and closes on that
+  same line, as test/unit/weakened-tests.test.ts does.
+
+measure:
+  - npx vitest run test/unit/weakened-tests-moves.test.ts
+
+creates_test_files:
+  - test/unit/weakened-tests-moves.test.ts
+
+not_done_if:
+  - "the behavior the acceptance items below name is not pinned by an assertion that fails when that behavior of src/weakened-tests.ts changes, so a defect planted in it leaves every test of the new suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test of the new file is skipped, focused or left todo, so the file declares a test that does not run"
+  - "a file other than test/unit/weakened-tests-moves.test.ts changes - the module, test/unit/weakened-tests.test.ts or another test, or a fixture committed beside the suite - so the change is not one new test file alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/weakened-tests-moves.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The suite test/unit/weakened-tests-moves.test.ts calls
+      `checkWeakenedTests` of src/weakened-tests.ts over real throwaway
+      repositories, as test/unit/weakened-tests.test.ts does, and asserts
+      the records it returns.
+  - type: behavior
+    statement: >
+      The suite pins this behavior of `checkWeakenedTests` by an assertion
+      that a defect in it would change: a skip line the range moves within
+      one test file, while the same line is also added to a document listed
+      before that file, is still a move and yields no `skip` finding. Git
+      lists the files of a change by path, so a document whose path sorts
+      before the test file's, byte by byte (`docs/` before `test/`), is
+      listed before it.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its own
+      whose text holds none of the words threshold, coverage, minimum, min,
+      maximum, max, at least or at most, so that a later edit of a fixture is
+      not read as a bound moved in a test. Fixtures are built at run time in
+      throwaway repositories under the operating system's temporary
+      directory and removed when the suite ends, whether it passed or not;
+      nothing is installed or fetched; and no test reads
+      src/weakened-tests.ts as text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-51.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/weakened-tests-moves.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - .gitignore
+  - test/e2e/**
+  - test/unit/weakened-tests.test.ts
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-weakened-tests-moves]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
