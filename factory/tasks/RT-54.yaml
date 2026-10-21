@@ -1,0 +1,174 @@
+id: RT-54
+repo: repo-truth
+priority: 35
+milestone: M0
+title: The configuration file - repo-truth.json read from the base commit and checked against the options each check declares
+
+outcome: >
+  The command runs every check with its defaults, and several checks
+  already take an option a caller can set only by calling the function -
+  RT-12's `maxBytes`, RT-18's `registries`, RT-19's `timeoutMs`. A
+  repository that adopts the command needs one place to set them, and a
+  gate whose settings can be misspelled into silence is a gate that is
+  off. This task builds the half of that place that decides nothing about
+  the command: one module that reads one configuration document and
+  checks it against the options each check declares, so that an unknown
+  check, an unknown option, a value of the wrong kind or a malformed file
+  is a stated error naming every problem, never a default taken in
+  silence. The document is `repo-truth.json` at the repository root,
+  the maintainer's choice of 2026-10-21; its form is stated below.
+  By default it is read from the BASE commit through git, never from the
+  working tree and never from the candidate, so that a range cannot loosen
+  the settings it is judged by; a caller may name a file on disk instead.
+  Handing the options to the checks, and reading the file in the command
+  and the Action, are later tasks that build on this module.
+
+  Written on 2026-10-21 under the maintainer's rule of 2026-09-30 that
+  every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names: the
+  holdout item below is the gate's, and the builder is never shown it.
+  The module is new and stands alone, so it touches neither the registry,
+  the command nor any check; every configuration file its tests need is
+  written at run time into a throwaway repository.
+
+measure:
+  - npx vitest run test/unit/config.test.ts
+
+creates_test_files:
+  - test/unit/config.test.ts
+
+not_done_if:
+  - "a document that is not one JSON object, that has no `schema` or one other than `repo-truth.config/v1`, that has a key besides `schema` and `checks`, or whose `checks` is not an object, is accepted instead of refused with a `ConfigError`"
+  - "a check name the declared kinds do not hold, an option that check does not declare, or a value not of its declared kind - a fraction, a negative number or a string for an `integer`, a list holding anything but strings for `strings` - is accepted, dropped or replaced by a default instead of refused"
+  - "a refusal names only the first problem of a document that has several, or a problem without the path of the key it is about, or prints a character outside printable ASCII from the document unescaped"
+  - "with no file named by the caller, the document is read from the working tree or from any commit but `base`, or a `base` whose tree holds no `repo-truth.json` is refused instead of answered with no options, or an entry at that path that is not a regular file is read or passed over instead of refused"
+  - "a file the caller names that is missing or cannot be read is answered with no options instead of refused with an error naming it"
+  - "a revision that names no commit, or a git invocation that fails, is answered with no options, or any failure reaches the caller as anything but a `ConfigError`"
+  - "the module imports src/registry.ts, src/cli.ts or a check, or the task changes any file but src/config.ts and test/unit/config.test.ts"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/config.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      `src/config.ts` exports `CONFIG_FILE`, the string `repo-truth.json`;
+      `CONFIG_SCHEMA`, the string `repo-truth.config/v1`; the type
+      `OptionKind`, one of the strings `integer`, `boolean`, `string` and
+      `strings`, and `OPTION_KINDS`, an array of exactly those four; the
+      type `OptionKinds`, a plain object whose keys are check names and
+      whose values are plain objects from an option's name to its
+      `OptionKind`; `ConfigError`, a class extending `Error` with a
+      read-only `issues`, an array of strings; `parseConfig(text, kinds)`;
+      and `readConfig(options, kinds)`. It imports nothing from src/registry.ts,
+      src/cli.ts or any check module, and only types from src/index.ts if
+      anything from it.
+  - type: behavior
+    statement: >
+      `parseConfig(text, kinds)` reads `text` as JSON (`JSON.parse`: no
+      comments, no trailing commas) and returns a plain object from each
+      check name the document's `checks` holds to a plain object of that
+      check's options and their values. The document must be a JSON object - not an
+      array and not null - whose keys are `schema`, which is required and must be the string
+      `CONFIG_SCHEMA`, and `checks`, which may be absent (no options) and
+      otherwise must be an object, not an array or null. Each key of `checks`
+      must be an own key of `kinds`, and its value an object, not an array
+      or null; each key of that object must be
+      an own key of `kinds[check]`, and its value of that option's kind: an
+      `integer` is a number that is a safe integer and not negative; a
+      `boolean` is `true` or `false`; a `string` is a string; `strings` is
+      an array whose every element is a string. Anything else is refused:
+      `parseConfig` throws a `ConfigError` whose `issues` hold one line for
+      EVERY problem the document has, in the order of the document, each
+      naming the path of its key - `schema`, `checks`, `checks.<check>`,
+      `checks.<check>.<option>`, the key itself for an unknown top-level
+      key, or `the document` for a document that is not a JSON object - and
+      what was expected; text that is not
+      JSON is one issue that says so. Every character of an issue outside
+      printable ASCII is written as `\u{hex}`, at least four lowercase
+      hexadecimal digits, the form the checks already use. The error's message holds
+      the number of issues and each issue.
+  - type: behavior
+    statement: >
+      `readConfig({ cwd, base, path? }, kinds)` resolves to `{ source,
+      options }`, where `options` is what `parseConfig` returns and
+      `source` names where the document came from, or is `null` when there
+      was none. With `path`, it reads that file from disk, relative to
+      `cwd` when it is not absolute, and `source` is the path; git is not
+      run and `base` is not read; a file that
+      does not exist or cannot be read is refused with a `ConfigError`
+      naming it. Without `path`, it reads `CONFIG_FILE` at the root of the
+      tree of the commit `base` names, through git with an argument vector
+      and never from the working tree: when that tree has no entry at the
+      path it resolves to `{ source: null, options: {} }`; an entry that is
+      a regular file (mode 100644 or 100755) is read whole as its blob and
+      parsed, and `source` names the file and the first twelve characters
+      of the commit's id; any other entry - a symbolic link, a directory, a
+      submodule - is refused. A revision that names no commit is refused
+      naming the revision, and any other git invocation that fails is
+      refused naming the cause. A refusal of a document `readConfig` read
+      names its source in the error's message before the issues. Every
+      refusal of either function is a
+      `ConfigError`: nothing else is thrown and no promise rejects with
+      anything else.
+  - type: behavior
+    statement: >
+      Tests build real throwaway repositories under the operating system's
+      temporary directory, removed when the suite ends, and drive a valid
+      document with an option of each kind; a document with no `checks`;
+      text that is not JSON, an array, a missing and a wrong `schema` and
+      an unknown top-level key; an unknown check, an unknown option and a
+      value of each wrong kind named above; a document with three problems
+      and the three issues it yields; a key holding a control character;
+      a base with no `repo-truth.json`, one with it, one where it is a
+      symbolic link and one where it is a directory; a working tree whose
+      `repo-truth.json` differs from the base's, and a candidate commit
+      that changes it, neither of which is read; a file named by the caller,
+      relative and absolute, and one that is missing; and a revision that
+      names no commit - and assert the result or the issues of each. The
+      task adds no `repo-truth.json` to this repository. The module stays
+      within about two hundred and fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-54.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/config.ts
+  - test/unit/config.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/action.ts
+  - src/checks/**
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:config-file]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

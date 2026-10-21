@@ -1,0 +1,177 @@
+id: RT-57
+repo: repo-truth
+priority: 32
+milestone: M0
+title: Path policy - a path the range touches that the repository's own policy forbids, or that no allowed pattern covers
+
+outcome: >
+  Every repository has paths a change should not reach without a second
+  look - generated output, vendored code, the release scripts, the gate's
+  own configuration - and some have a short list of paths a change may
+  reach at all. Which paths those are is the repository's to say, not this
+  package's, so this check holds no list of its own: it reads two lists
+  of path patterns from its options, `forbidden` and `allowed`, and
+  reports each path the range adds, changes, renames or deletes, at either
+  end of a rename, that a `forbidden` pattern matches or, when `allowed`
+  is given, that no `allowed` pattern matches - for a human to sanction or
+  refuse. With neither list it has nothing to judge and says so as a
+  `skip`. The patterns are a small glob language stated here in full, so
+  the answer never depends on another program's idea of a glob. The
+  options are the check's own: the configuration file hands them to it
+  once the command reads that file, and a caller hands them to it today.
+
+  Written on 2026-10-21 under the maintainer's rule of 2026-09-30 that
+  every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names: the
+  holdout item below is the gate's, and the builder is never shown it. It
+  is written as one module of the check directory RT-22 builds, so it
+  touches neither the registry nor the command.
+
+measure:
+  - npx vitest run test/unit/path-policy.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-57"))'
+
+creates_test_files:
+  - test/unit/path-policy.test.ts
+
+not_done_if:
+  - "a path the range adds, changes, deletes, or renames from or to, that a `forbidden` pattern matches passes unreported - the old path of a rename and a deleted path among them"
+  - "with `allowed` given, a path the range adds, changes, deletes, or renames from or to, that no `allowed` pattern matches passes unreported, or with `allowed` absent or empty every path is refused"
+  - "a path the range leaves alone yields a finding, or a path that both lists permit does, so the check fires on ordinary edits and gets switched off"
+  - "a pattern is matched other than as the acceptance states - `*` or `?` crossing a `/`, a `**` that is a whole segment matching part of a segment or failing to match zero segments, a pattern matched against part of a path, or a character other than `*` and `?` read as anything but itself"
+  - "with neither list given, or both empty, the record is anything but a `skip` that says no path policy is configured; or a list that is not an array of strings yields anything but a `fail` record naming it"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, or a sanction is read from anywhere else"
+  - "a finding does not name the path, its category and the pattern that decided it when one did, with every character outside printable ASCII escaped"
+  - "the paths are read from the working tree or the patch's text rather than from git's list of the changes between the merge base and the candidate, or a revision that names no commit, or a git invocation that fails, is reported as a pass, a skip or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-57` does not run it alone after `npm run build`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/path-policy.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-57"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/path-policy.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-57`; `check(options)`,
+      where `options` is `{ cwd, base, candidate, sanctions?, forbidden?,
+      allowed? }`, which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-57`; `matchesPattern(pattern, path)`, a function that answers
+      `true` when one pattern matches one path and `false` when it does not; and `optionKinds`, the plain
+      object `{ forbidden: "strings", allowed: "strings" }`, which names the
+      options a configuration file may set for this check. It imports
+      nothing from src/registry.ts or src/cli.ts and only types from
+      src/index.ts.
+  - type: behavior
+    statement: >
+      A pattern is matched against a whole path, as git names it from the
+      repository's root with `/` between segments, and never against part of
+      one. In a pattern, `?` matches one character that is not `/`; `*`
+      matches any run of characters, the empty run included, that holds no
+      `/`; a segment that is exactly `**` matches any number of whole
+      segments, none included, so `**/x` matches `x` and `a/b/x`, `a/**`
+      matches `a`, `a/b` and `a/b/c`, and `a/**/b` matches `a/b`; `**` that is
+      not a whole segment is read as two `*`. Every other character,
+      including `[`, `]`, `{`, `}`, `!` and `\`, matches only itself, and
+      letters are compared with their case.
+  - type: behavior
+    statement: >
+      The check reads, through git with an argument vector and never from
+      the working tree, the changes between the merge base of `base` and
+      `candidate` and `candidate` as `git diff --raw -z -M` lists them
+      (paths unquoted, renames detected), and the messages
+      of the commits in `base..candidate`. The paths it judges are every
+      path a change names: an added, changed or deleted file's path, and
+      both the old and the new path of a rename. When `forbidden` and
+      `allowed` are both absent or empty it resolves to a `skip` record
+      whose one evidence line holds `no path policy is configured`, after
+      the revisions are resolved. Otherwise a judged path that some
+      `forbidden` pattern matches is a finding of category `path-forbidden`
+      naming the first pattern in the list that matches it; and when
+      `allowed` holds at least one pattern, a judged path that no `allowed`
+      pattern matches is a finding of category `path-not-allowed`. A path
+      is judged once however many changes name it. An option given that is
+      not an array of strings yields a `fail` record whose evidence names
+      the option.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`,
+      imported from src/weakened-tests.ts rather than written again - or by
+      the caller's `sanctions`, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `<category>:<path>`. Each
+      finding is one evidence line that opens with `<path>:`, with every
+      character outside printable ASCII escaped as a backslash, `u{`, at
+      least four lowercase hexadecimal digits and `}` - the form the checks
+      already use - and holds its category and,
+      for `path-forbidden`, the pattern in double quotes; a sanctioned
+      finding's line also holds the word `sanctioned` and the reason. The
+      record fails while any finding is unsanctioned, and passes once every
+      finding is sanctioned, listing them; with a policy and no finding it
+      passes with one evidence line holding `no path outside the policy`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass` or a `skip`, and never a thrown error. Tests call
+      `matchesPattern` for each rule of the pattern language and each
+      example the acceptance gives, and build real throwaway repositories
+      to drive a forbidden path added, changed and deleted; both paths of a
+      rename; an `allowed` list a path falls outside; a path both lists
+      permit; no policy, empty lists and a list that is not an array of
+      strings; a working tree that differs from the candidate; a sanction by
+      line and by the caller and a sanction written in a file rather than a
+      commit message; and a revision that names no commit, and assert the
+      record of each; and one test runs `main` of src/cli.ts with `check`,
+      `--check RT-57`, `--no-fetch` and `--format json` over a throwaway
+      repository and asserts exactly one record, `RT-57`, a `skip`. Every
+      fixture is written at run time into a throwaway repository under the
+      operating system's temporary directory, removed when the suite ends.
+      The module stays within about two hundred and fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-57.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/path-policy.ts
+  - test/unit/path-policy.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/config.ts
+  - src/weakened-tests.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:path-policy]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

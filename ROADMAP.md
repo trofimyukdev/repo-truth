@@ -43,7 +43,8 @@ stage's new tasks have landed; and the factory has run several passes with two b
 
 - A full-suite rung that runs the end-to-end suite, and a project-truth rung that runs `repo-truth
   check` on the repository's own candidates (both are the maintainer's edits to
-  `factory/checks.yaml`).
+  `factory/checks.yaml`). The project-truth rung waits for the weakened-tests check to read a skip
+  or focus marker only in code, never inside a string literal (RT-58).
 - `--except <name>`, and a command that lists the registered checks (RT-35), so that rungs and
   suites never hold a list of names that goes stale.
 
@@ -53,15 +54,18 @@ passes over this README's own figures from the root commit.
 ## Stage 3 - configuration and adoption
 
 - Per-check options read from one configuration file (its form is a product decision, the
-  maintainer's), handed to each check by the command.
-- A path-policy check, and the Action's records written to the job summary (the latter RT-40).
+  maintainer's), handed to each check by the command. The maintainer chose `repo-truth.json` at the
+  root on 2026-10-21; its reader is RT-54, which states the form he read before this commit, and
+  the registry, the command and the Action take it up after it lands.
+- A path-policy check (RT-57), and the Action's records written to the job summary (the latter
+  RT-40).
 
 Done when a range is checked with per-check options from one file and the Action writes its records
 to the job summary.
 
 ## Stage 4 - breadth and strength
 
-- More checks: a CI workflow that is weakened, binary files the range adds.
+- More checks: a CI workflow that is weakened (RT-56), binary files the range adds (RT-55).
 - Suite-strength tasks for the remaining modules, starting with conflict markers (RT-43), stray
   files (RT-44), raised timeouts (RT-45) and credentials (RT-46); then the measurement rule
   (RT-47), snapshot refreshes (RT-48), portable paths (RT-49) and weakened tests (RT-50, reissued

@@ -1,0 +1,168 @@
+id: RT-55
+repo: repo-truth
+priority: 34
+milestone: M0
+title: Binary files - a file the range adds or changes whose content git would read as binary
+
+outcome: >
+  A review reads a range line by line, and a binary file has no lines to
+  read: a compiled artefact, an archive or an image the range adds enters
+  the history whole and unreviewed, and every clone carries it from then
+  on. This check reads the files the range adds, changes or renames, at
+  the candidate and through git, and reports each one whose new content is
+  binary by git's own test - a NUL byte among its first eight thousand
+  bytes - and was not already that same content at the merge base, for a
+  human to sanction or refuse. A file whose name ends with a suffix the
+  caller allows yields no finding, so a repository that keeps its images
+  in the history says so once instead of switching the check off.
+
+  Written on 2026-10-21 under the maintainer's rule of 2026-09-30 that
+  every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names: the
+  holdout item below is the gate's, and the builder is never shown it. It
+  is written as one module of the check directory RT-22 builds, so it
+  touches neither the registry nor the command; every binary file its
+  tests need is written at run time into a throwaway repository, and the
+  task adds no binary file to this repository.
+
+measure:
+  - npx vitest run test/unit/binary-files.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-55"))'
+
+creates_test_files:
+  - test/unit/binary-files.test.ts
+
+not_done_if:
+  - "a regular file the range adds, or changes or renames into new content, whose content at the candidate holds a NUL byte among its first eight thousand bytes passes unreported - one added, one whose text the range replaces with binary content, one whose binary content the range changes, or one renamed with its content changed"
+  - "a text file, a NUL byte only after the first eight thousand bytes, a binary file the range renames with its content as it was, a binary file the range deletes, a binary file the range leaves alone, or a symbolic link yields a finding, so the check fires on ordinary edits and gets switched off"
+  - "the content is read from the working tree, decided by the file's name or by `.gitattributes`, or taken from the patch's text rather than read as the candidate's blob through git"
+  - "a file whose name ends with a suffix in the caller's `allowedSuffixes` yields a finding, or a suffix is matched other than as the exact end of the path"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, or a sanction is read from anywhere else"
+  - "a finding does not name the path, its category and its size in bytes, with every character outside printable ASCII escaped"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-55` does not run it alone after `npm run build`, or the task adds a binary file to this repository"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/binary-files.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-55"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/binary-files.ts` is a module of the check directory in
+      RT-22's form: it exports `name`, the string `RT-55`; `check(options)`,
+      where `options` is `{ cwd, base, candidate, sanctions?,
+      allowedSuffixes? }`, which resolves to a `CheckRecord` (src/index.ts)
+      named `RT-55`; `BINARY_PROBE_BYTES`, the number 8000; and
+      `optionKinds`, the plain object `{ allowedSuffixes: "strings" }`,
+      which names the option a configuration file may set for this check.
+      It imports nothing from src/registry.ts or src/cli.ts and only types
+      from src/index.ts.
+  - type: behavior
+    statement: >
+      It reads, through git with an argument vector and never from the
+      working tree, the changes between the merge base of `base` and
+      `candidate` and `candidate` as `git diff --raw -z -M` lists them
+      (paths unquoted), with
+      each entry's status, modes, blob ids and paths. An entry is examined
+      when its status is added, modified, renamed, copied or type-changed
+      and its mode at the candidate is a regular file's (100644 or 100755);
+      a deleted entry, and one whose mode at the candidate is a symbolic
+      link's or a submodule's, is not. An examined entry whose blob id at
+      the candidate equals its blob id at its source - a rename with the
+      content as it was - is not a finding; a copy git does not list as a
+      rename is an added file. For every other
+      examined entry the candidate's blob is read through git, and it is
+      binary when one of its first `BINARY_PROBE_BYTES` bytes is a NUL
+      byte; the file's name and `.gitattributes` decide nothing. A binary
+      entry is a finding of category `binary-changed` when its source blob
+      at the merge base exists and is binary by the same test, and of
+      category `binary-added` otherwise. An entry whose path at the
+      candidate ends with one of the strings of `allowedSuffixes` (compared
+      character for character with the end of the path) is not a finding.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of `base..candidate` - the key is `SANCTION_KEY`,
+      imported from src/weakened-tests.ts rather than written again - or by
+      the caller's `sanctions`, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `<category>:<path>`, with
+      the path at the candidate. Each finding is one evidence line that opens
+      with `<path>:`, with every character outside printable ASCII escaped
+      as a backslash, `u{`, at least four lowercase hexadecimal digits and
+      `}` - the form the checks already use - and holds its category and the blob's size in bytes followed by the
+      word `bytes`; a sanctioned finding's line also holds the word
+      `sanctioned` and the reason. The record fails while any finding is
+      unsanctioned, and passes once every finding is sanctioned, listing
+      them; with no finding it passes with one evidence line holding `no
+      binary file added or changed`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error. Tests build real throwaway
+      repositories and drive a binary file added, a text file turned
+      binary, a binary file changed, a binary file renamed as it was and
+      renamed with its content changed, a binary file deleted and one left
+      alone, a NUL byte at the last of the first eight thousand bytes and
+      one just after them, a `.gitattributes` that marks a text file
+      binary, a symbolic link, a file in the working tree that differs from
+      the candidate, a suffix allowed and a suffix that matches only inside
+      the name, a sanction by line and by the caller and a sanction written
+      in a file rather than a commit message, and a revision that names no
+      commit, and assert the record of each; and one test runs `main` of
+      src/cli.ts with `check`, `--check RT-55`, `--no-fetch` and `--format
+      json` over a throwaway repository and asserts exactly one record,
+      `RT-55`. Every binary file a test needs is written at run time into a
+      throwaway repository under the operating system's temporary
+      directory, removed when the suite ends; each fixture number sits in a
+      constant declared on a line of its own whose text holds none of the
+      words threshold, coverage, minimum, min, maximum, max, at least or at
+      most. The module stays within about two hundred and fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-55.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/binary-files.ts
+  - test/unit/binary-files.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/config.ts
+  - src/weakened-tests.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:binary-files]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

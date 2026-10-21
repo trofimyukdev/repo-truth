@@ -1,0 +1,184 @@
+id: RT-56
+repo: repo-truth
+priority: 33
+milestone: M0
+title: Weakened workflows - a CI workflow the range deletes, or into which it writes a line that lets a failing job pass
+
+outcome: >
+  A pull request's checks are the workflows under `.github/workflows/`, and
+  the cheapest way to make a red check green is to change the workflow
+  rather than the code: delete it, mark a job or a step
+  `continue-on-error: true`, give it `if: false`, or end a command with
+  `|| true`. Each is one line, and each looks like housekeeping in a diff.
+  This check reads every workflow file the range deletes, adds, changes or
+  renames, whole and through git at each end of the range, line by line,
+  and reports each workflow the range removes and each line of a weakening
+  shape that the candidate's file holds more often than the merge base's
+  did - for a human to sanction or refuse. A line moved within a file, or
+  re-indented, is not a new line, so the check stays quiet on ordinary
+  edits. The shapes are an exported list a consumer appends to.
+
+  Written on 2026-10-21 under the maintainer's rule of 2026-09-30 that
+  every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names: the
+  holdout item below is the gate's, and the builder is never shown it. It
+  is written as one module of the check directory RT-22 builds, so it
+  touches neither the registry nor the command. The task changes nothing
+  under this repository's own `.github/`: every workflow file its tests
+  need is written at run time into a throwaway repository.
+
+measure:
+  - npx vitest run test/unit/workflow-weakening.test.ts
+  - npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-56"))'
+
+creates_test_files:
+  - test/unit/workflow-weakening.test.ts
+
+not_done_if:
+  - "a workflow file the range deletes, or renames to a path that is no workflow file's, passes unreported"
+  - "a line of a weakening shape - `continue-on-error` set true, `if` set false, a command that ends in `|| true`, `|| :` or `|| exit 0`, a comment after it or not - that the candidate's file holds more often than the merge base's file passes unreported, in a workflow the range changes, renames or adds"
+  - "a line moved within the file, a line re-indented, a weakening line the range leaves as often as it was, a line of that shape in a file outside `.github/workflows/`, `continue-on-error: false`, or an `if` with any other condition yields a finding, so the check fires on ordinary edits and gets switched off"
+  - "a file is read from the working tree or from the lines of the patch rather than whole at the merge base and at the candidate through git, or a workflow below a subdirectory of `.github/workflows/`, or with a suffix other than `.yml` or `.yaml`, is read as a workflow"
+  - "the shapes are written inside the matcher, with no exported list a consumer appends to, or the list misses one the acceptance names"
+  - "a finding has no way to be sanctioned in the range's commit messages or by the caller, or a sanction is read from anywhere else"
+  - "a finding does not name the file and its category, and for a line its text, with every character outside printable ASCII escaped"
+  - "a revision that names no commit, or a git invocation that fails, is reported as a pass or thrown to the caller instead of a `fail` record naming the cause"
+  - "the check is not a module of the check directory, or changes src/registry.ts or src/cli.ts, so `repo-truth check --check RT-56` does not run it alone after `npm run build`, or the task changes anything under `.github/`"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/workflow-weakening.test.ts
+    required: true
+  - type: command
+    command: npm run build && node --input-type=module -e 'const r = await import("./dist/registry.js"); process.exitCode = Number(!r.REGISTRY.some((e) => e.name === "RT-56"))'
+    required: true
+  - type: behavior
+    statement: >
+      `src/checks/workflow-weakening.ts` is a module of the check directory
+      in RT-22's form: it exports `name`, the string `RT-56`, and
+      `check(options)`, where `options` is `{ cwd, base, candidate,
+      sanctions? }`, which resolves to a `CheckRecord` (src/index.ts) named
+      `RT-56`. It imports nothing from src/registry.ts or src/cli.ts and
+      only types from src/index.ts. A path is a workflow file when its
+      directory is exactly `.github/workflows` at the root of the
+      repository and its name ends with `.yml` or `.yaml`.
+  - type: behavior
+    statement: >
+      It reads, through git with an argument vector and never from the
+      working tree, the changes between the merge base of `base` and
+      `candidate` and `candidate` as `git diff --raw -z -M` lists them
+      (paths unquoted, renames detected), and the messages
+      of the commits in `base..candidate`. A change whose path at the merge
+      base is a workflow file and which deletes it, or renames it to a path
+      that is not a workflow file's, is a finding of category
+      `workflow-removed`. A change whose path at the candidate is a workflow
+      file - one the range adds, changes, or renames from any path - is read
+      whole as the candidate's blob and compared with its source read whole
+      at the merge base: the file at its old path for a change or a rename
+      from a workflow file, and an empty file for one the range adds or
+      renames from a path that is no workflow file's. Both are read line by
+      line, a line being the text between two line feeds with one carriage
+      return before a line feed dropped, and compared as their text with
+      white space at both ends removed; the YAML is not parsed.
+  - type: behavior
+    statement: >
+      It also exports `WEAKENING_SHAPES`, an array of `{ category, pattern
+      }`, `pattern` a regular expression tested against a line's text with
+      white space at both ends removed; the check reads the array each time
+      it runs, so an entry a consumer appends is applied. The list holds at
+      least: `continue-on-error`, a line that sets the key
+      `continue-on-error` to `true` or to the expression `${{ true }}`,
+      after an optional `- ` and before an optional comment; `if-false`, a
+      line that sets the key `if` to `false` or to the expression
+      `${{ false }}`, the same way; and `or-true`, a line that ends in `||`
+      followed by `true`, `:` or `exit 0`, with any white space between,
+      before an optional comment, as in `- run: npm audit || true # advisories`.
+      For each line text of the candidate's file that some entry's pattern
+      matches and that occurs more times among the candidate's lines than
+      among the source's, there is one finding of that entry's category,
+      the first entry in the array that matches deciding the category.
+  - type: behavior
+    statement: >
+      A finding is sanctioned by a line `Sanctioned-Weakening: <id> <reason>`
+      in a commit message of the range - the key is `SANCTION_KEY`,
+      imported from src/weakened-tests.ts rather than written again - or by
+      the caller's `sanctions`, a plain object whose keys are ids and whose
+      values are the reasons. A finding's id is `<category>:<file>`, the
+      file being its path at the candidate, or at the merge base for a
+      `workflow-removed` finding. Each finding is one evidence line that
+      opens with `<file>:`, with every character outside printable ASCII
+      escaped as a backslash, `u{`, at least four lowercase hexadecimal
+      digits and `}` - the form the checks already use - and holds its
+      category, and for a line finding the line's text with white space at
+      both ends removed, in double quotes; a sanctioned finding's line also holds the
+      word `sanctioned` and the reason. The record fails while any finding
+      is unsanctioned, and passes once every finding is sanctioned, listing
+      them; with no finding it passes with one evidence line holding `no
+      workflow weakened`.
+  - type: behavior
+    statement: >
+      The check fails closed: a revision that names no commit yields a
+      `fail` record whose evidence names that revision, and any other git
+      invocation that fails yields one whose evidence names the cause -
+      never a `pass`, and never a thrown error. Tests build real throwaway
+      repositories and drive a workflow deleted, renamed out of the
+      directory and renamed within it; each shape the list names, in a
+      changed file and in an added one, with and without `- ` and a
+      trailing comment; a line moved, a line re-indented and a weakening
+      line left as it was; `continue-on-error: false` and an `if` with
+      another condition; the same lines in a file outside the directory, in
+      a subdirectory of it and with another suffix; a working tree that
+      differs from the candidate; an entry appended to `WEAKENING_SHAPES`;
+      a sanction by line and by the caller and a sanction written in a file
+      rather than a commit message; and a revision that names no commit,
+      and assert the record of each; and one test runs `main` of src/cli.ts
+      with `check`, `--check RT-56`, `--no-fetch` and `--format json` over a
+      throwaway repository and asserts exactly one record, `RT-56`. Every
+      workflow file a test needs is written at run time into a throwaway
+      repository under the operating system's temporary directory, removed
+      when the suite ends. The module stays within about two hundred and
+      fifty lines.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-56.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/workflow-weakening.ts
+  - test/unit/workflow-weakening.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/config.ts
+  - src/weakened-tests.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:workflow-weakening]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

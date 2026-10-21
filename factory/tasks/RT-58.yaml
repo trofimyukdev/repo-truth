@@ -1,0 +1,139 @@
+id: RT-58
+repo: repo-truth
+priority: 36
+milestone: M0
+title: Weakened tests read a marker only in code - the text of a string literal on a line of a test file is no skip or focus marker
+
+outcome: >
+  RT-04 reports a skip or focus marker a range adds to a test file, and
+  it matches each marker's pattern against the whole added line. A test
+  that writes a marker into a throwaway repository holds the marker as
+  text in a string - `const SKIPPED = 'it.skip("a", () => {});';` - and
+  that string skips nothing, yet RT-04 reports it as a test newly
+  skipped. So the command, run over this repository's own landings,
+  refuses honest work: over the merges of RT-51 and RT-50 every RT-04
+  finding is such a string. That stands between this repository and the
+  rung of its ladder that runs its own command over each candidate, the
+  goal's "its own command as rungs of its ladder". This task makes RT-04
+  read a line of a test file with the text of its string literals taken
+  out before it matches a marker's pattern, on both sides of the range,
+  so a marker written as data is no marker and a marker written as code
+  still is. A configuration file is read as before: a quoted key such as
+  `"testNamePattern"` there is the setting itself.
+
+  Written on 2026-10-21 under the maintainer's rule of 2026-09-30 that
+  every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names: the
+  holdout item below is the gate's, and the builder is never shown it.
+  Its tests go in a new test file of their own, so the module's two
+  existing test files stay as they are and keep passing. Every marker a
+  test writes is text in a string that opens and closes on its line.
+
+measure:
+  - npx vitest run test/unit/weakened-tests-strings.test.ts test/unit/weakened-tests.test.ts test/unit/weakened-tests-moves.test.ts
+
+creates_test_files:
+  - test/unit/weakened-tests-strings.test.ts
+
+not_done_if:
+  - "a skip or focus marker that appears on an added line of a test file only inside a string literal - single-quoted, double-quoted or a template literal that opens and closes on the line, with its backslash escapes - yields a `skip` or `only` finding"
+  - "a marker written as code on a line of a test file passes unreported - beside a string, after one, or on a line where an unclosed quote character opens no string - so the check is switched off by any quote on the line"
+  - "a marker on a line of a configuration file is read other than as before, so a quoted `testNamePattern` key there passes unreported"
+  - "a code marker the range only moves within a test file becomes a finding, or a code marker the range adds where it removes a line that held the same marker only as text is not a finding"
+  - "over this repository's own merge of RT-51 (24d7ed6^1..24d7ed6) or of RT-50 (fe0a912^1..fe0a912) `repo-truth check --check RT-04` still answers `fail`"
+  - "the task changes test/unit/weakened-tests.test.ts or test/unit/weakened-tests-moves.test.ts, either fails, or the task changes any file but src/weakened-tests.ts and test/unit/weakened-tests-strings.test.ts"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/weakened-tests-strings.test.ts test/unit/weakened-tests.test.ts test/unit/weakened-tests-moves.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      In src/weakened-tests.ts, before a marker's pattern is tested against
+      a line of a file whose kinds include `test` (src/weakened-tests.ts's
+      `testFiles`), the text of every string literal on that line is
+      removed, the quote characters that bound it kept. The line is read
+      from left to right: a `'`, `"` or backquote character outside a
+      string opens a string that runs to the next unescaped character of
+      the same kind on that line, a backslash escaping the character after
+      it; a quote character with no such closing character on the line
+      opens no string and is read as code. Outside a string, `//` begins a
+      comment that runs to the end of the line and `/*` one that runs to
+      the next `*/` or the end of the line; a comment's text is kept as
+      code, and a quote character inside a comment opens no string.
+      Everything outside a string is code, a comment included; a regular
+      expression literal is not told apart, a limit this task accepts. For a template literal, `${...}` within it
+      is part of its text. On a line of a file whose kinds include `test`,
+      every marker is matched against the line so changed; on a line of any
+      other file - a configuration file among them - every marker is
+      matched against the line as it is. The lines a range removes and the
+      lines it adds are read the same way, so a moved marker is still a
+      move and a marker that was only ever text spends none.
+  - type: behavior
+    statement: >
+      Nothing else of RT-04 changes: its record, its findings, their ids,
+      categories, lines and evidence, its sanctions, its spellings and how
+      it reads a range stay as they are, and test/unit/weakened-tests.test.ts
+      and test/unit/weakened-tests-moves.test.ts pass unchanged. Over this
+      repository's own merges of RT-51 and RT-50, `repo-truth check --check
+      RT-04 --base 24d7ed6^1 --candidate 24d7ed6 --no-fetch` and the same
+      over `fe0a912^1..fe0a912`, after `npm run build`, answer `pass`.
+  - type: behavior
+    statement: >
+      Tests, in the new file test/unit/weakened-tests-strings.test.ts, build
+      real throwaway repositories under the operating system's temporary
+      directory, removed when the suite ends, and drive a test file that
+      adds markers inside single-quoted, double-quoted and template-literal
+      strings, one with an escaped quote inside it and one beside another
+      string; a marker written as code beside a string, after one, and on a
+      line whose only quote character is unclosed, and between two comments
+      that each hold a quote character; a configuration file
+      whose `testNamePattern` key is quoted; a marker moved within a test
+      file; and a line that held a marker only as text replaced by a line
+      that holds it as code - and assert the findings of each through
+      `checkWeakenedTests`.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-58.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/weakened-tests.ts
+  - test/unit/weakened-tests-strings.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/checks/**
+  - test/unit/weakened-tests.test.ts
+  - test/unit/weakened-tests-moves.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:weakened-tests-strings]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
