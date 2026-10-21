@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -149,5 +149,56 @@ describe("readFigureClaims", () => {
   it("fails rather than throwing when git cannot run", async () => {
     const result = await readFigureClaims({ cwd: join(repo, "missing"), base: "a", candidate: "b" });
     expect("failure" in result).toBe(true);
+  });
+
+  it("fails with git's own complaint in a directory that is not a repository", async () => {
+    const bare = await mkdtemp(join(tmpdir(), "repo-truth-figure-claims-bare-"));
+    try {
+      const result = await readFigureClaims({ cwd: bare, base: "HEAD", candidate: "HEAD" });
+      expect(result).toEqual({ failure: expect.stringMatching(/not a git repository/i) });
+      expect((result as { failure: string }).failure).not.toContain("Command failed");
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an empty revision before git runs", async () => {
+    const head = await commit(repo, { "a.txt": "x\n" });
+    expect(await read("", head)).toEqual({ failure: 'revision "" does not name a commit' });
+    expect(await read(head, "")).toEqual({ failure: 'revision "" does not name a commit' });
+  });
+
+  it("refuses a revision that begins with a minus sign, quoting its text", async () => {
+    const head = await commit(repo, { "a.txt": "x\n" });
+    expect(await read("-x", head)).toEqual({ failure: 'revision "-x" does not name a commit' });
+    expect(await read(head, "-x")).toEqual({ failure: 'revision "-x" does not name a commit' });
+  });
+
+  it("resolves a one-character revision that names a commit", async () => {
+    const base = await commit(repo, { "a.txt": "x\n" });
+    await commit(repo, { "p.md": claim("7") });
+    expect(await read(base, "@")).toEqual({ claims: [{ where: "p.md:1", command: COMMAND, claimed: "7" }] });
+  });
+
+  it("treats a .md path added as a symbolic link as no page", async () => {
+    const base = await commit(repo, { "a.txt": "x\n" });
+    await symlink(claim("7").trim(), join(repo, "link.md"));
+    const head = await commit(repo, {});
+    expect(await read(base, head)).toEqual({ claims: [] });
+  });
+
+  it("claims the last line of an added page that has no final newline", async () => {
+    const base = await commit(repo, { "a.txt": "x\n" });
+    const head = await commit(repo, { "p.md": `intro\n\n${claim("7").trimEnd()}` });
+    expect(await read(base, head)).toEqual({ claims: [{ where: "p.md:3", command: COMMAND, claimed: "7" }] });
+  });
+
+  it("does not make an old claim the range's by adding a line just above it", async () => {
+    const base = await commit(repo, { "p.md": `intro\n${claim("7")}` });
+    const head = await commit(repo, { "p.md": `intro\nadded\n${claim("7")}` });
+    expect(await read(base, head)).toEqual({ claims: [] });
+    const first = await commit(repo, { "q.md": claim("5") });
+    const second = await commit(repo, { "q.md": `added\n${claim("5")}` });
+    expect(await read(first, second)).toEqual({ claims: [] });
   });
 });
