@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -537,6 +537,188 @@ describe("checkWeakenedTests", () => {
     it("on missing options, without throwing", async () => {
       const record = await checkWeakenedTests(undefined as unknown as WeakenedTestsOptions);
       expect(record).toMatchObject({ name: "RT-04", status: "fail", findings: [] });
+    });
+  });
+
+  describe("strength", () => {
+    const SKIP_ON_SECOND_ADDED = 12;
+    const SKIP_AFTER_LAST_LINE = 2;
+    const REMOVED_DUPLICATE_AT = 3;
+    const SKIP_ON_FIRST_LINE = 1;
+    const SKIPPED = 'it.skip("a", () => {});';
+
+    it("names git's own complaint for a directory that is not a repository, not node's wording", async () => {
+      const elsewhere = await mkdtemp(join(tmpdir(), "repo-truth-not-a-repo-"));
+      try {
+        const record = await checkWeakenedTests({ cwd: elsewhere, base: "HEAD", candidate: "HEAD" });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toHaveLength(1);
+        expect(record.evidence[0]).toMatch(/not a git repository/i);
+        expect(record.evidence[0]).not.toContain("Command failed");
+        expect(record.evidence[0]).toMatch(/^revision "HEAD" does not name a commit: (fatal|error): /);
+      } finally {
+        await rm(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    it("names the git command for a revision git cannot find and says nothing about", async () => {
+      const record = await run({ base: "no-such-branch" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      expect(record.evidence[0]?.startsWith('revision "no-such-branch" does not name a commit: ')).toBe(true);
+      expect(record.evidence[0]).toContain("no-such-branch^{commit}");
+    });
+
+    it("refuses an empty revision and one that begins with a minus sign before git runs", async () => {
+      expect((await run({ candidate: "" })).evidence).toEqual(['revision "" does not name a commit']);
+      expect((await run({ base: "-x" })).evidence).toEqual(['revision "-x" does not name a commit']);
+    });
+
+    it("resolves a revision one character long that names a commit", async () => {
+      const record = await run({ candidate: "@" });
+      expect(record.status).toBe("pass");
+      expect(record.findings).toEqual([]);
+    });
+
+    it("words a skip and a focus marker, trimmed", async () => {
+      await put("test/words.test.ts", '   it.skip("a", () => {});   \n\t it.only("b", () => {});\n');
+      await commit("both");
+      const record = await run();
+      expect(record.findings.map((finding) => [finding.category, finding.detail])).toEqual([
+        ["skip", 'test newly skipped: it.skip("a", () => {});'],
+        ["only", 'run newly focused: it.only("b", () => {});'],
+      ]);
+    });
+
+    it("escapes every character outside printable ASCII in the evidence and keeps a tilde", async () => {
+      const name = "a\u001bb\u007fc\u001fdée\u{1f600}f~g h";
+      await put("test/escape.test.ts", `it.skip("${name}", () => {});\n`);
+      await commit("odd name");
+      const text = (await run()).evidence.join("\n");
+      expect(text).toContain("a\\u{001b}b\\u{007f}c\\u{001f}d\\u{00e9}e\\u{1f600}f~g h");
+      expect(text).not.toContain("\u001b");
+    });
+
+    it("reads a test file that holds a NUL byte as holding no line", async () => {
+      await put("test/nul.test.ts", 'it("x", () => {});\0\n');
+      base = await commit("binary suite");
+      await rm(join(repo, "test/nul.test.ts"));
+      await commit("delete it");
+      expect((await run()).findings.map((finding) => finding.id)).toEqual(["test-file-deleted:test/nul.test.ts:0"]);
+    });
+
+    it("reports a skip added after the last line of a base file with no final newline at its own line", async () => {
+      await put("test/tail.test.ts", 'it("a", () => {});');
+      base = await commit("no final newline");
+      await put("test/tail.test.ts", `it("a", () => {});\n${SKIPPED}`);
+      await commit("skip after the last line");
+      const record = await run();
+      expect(record.findings.map((finding) => finding.id)).toEqual([`skip:test/tail.test.ts:${SKIP_AFTER_LAST_LINE}`]);
+    });
+
+    it("numbers each line a hunk adds", async () => {
+      await put("test/math.test.ts", SUITE + `it("c", () => {});\n${SKIPPED}\n`);
+      await commit("two lines");
+      const record = await run();
+      expect(record.findings.map((finding) => finding.id)).toEqual([`skip:test/math.test.ts:${SKIP_ON_SECOND_ADDED}`]);
+    });
+
+    it("reports an assertion removed from a test declared on one line", async () => {
+      await put("test/one.test.ts", 'it("adds", () => expect(1 + 1).toBe(2));\n');
+      base = await commit("one-liner");
+      await put("test/one.test.ts", 'it("adds", () => {});\n');
+      await commit("empty it");
+      const record = await run();
+      expect(record.findings.map((finding) => [finding.id, finding.detail])).toEqual([
+        [
+          `assertion-removed:test/one.test.ts:${SKIP_ON_FIRST_LINE}`,
+          'assertion removed from test "adds": it("adds", () => expect(1 + 1).toBe(2));',
+        ],
+      ]);
+    });
+
+    it("reports one assertion when two identical ones go and one comes back elsewhere in the test", async () => {
+      const head = 'it("t", () => {\n';
+      await put("test/dup.test.ts", `${head}  expect(a).toBe(1);\n  expect(a).toBe(1);\n  stay();\n});\n`);
+      base = await commit("duplicates");
+      await put("test/dup.test.ts", `${head}  stay();\n  expect(a).toBe(1);\n});\n`);
+      await commit("one of them back");
+      const record = await run();
+      expect(record.findings.map((finding) => finding.category)).toEqual(["assertion-removed"]);
+      expect(record.findings[0]?.line).toBe(REMOVED_DUPLICATE_AT);
+    });
+
+    it("reports a skip line removed from a document and added to a test file", async () => {
+      await put("docs/notes.md", `${SKIPPED}\n`);
+      base = await commit("a document with the line");
+      await put("docs/notes.md", "nothing\n");
+      await put("test/new.test.ts", `${SKIPPED}\n`);
+      await commit("the line moves into a test file");
+      const record = await run();
+      expect(record.findings.map((finding) => finding.id)).toEqual([`skip:test/new.test.ts:${SKIP_ON_FIRST_LINE}`]);
+    });
+
+    it("keeps a skip reported when a file is renamed to a name that begins with a colon", async () => {
+      await put("a.txt", "some content that stays the same\nacross the rename\n");
+      base = await commit("a file");
+      await rename(join(repo, "a.txt"), join(repo, ":b.txt"));
+      await put("test/math.test.ts", SUITE.replace('it("subtracts"', 'it.skip("subtracts"'));
+      await commit("rename and skip");
+      const record = await run();
+      expect(record.findings.map((finding) => finding.id)).toEqual(["skip:test/math.test.ts:8"]);
+    });
+
+    it("does not read a symbolic link added under a test file's name as a file of lines", async () => {
+      await symlink("it.only", join(repo, "test/link.test.ts"));
+      await commit("a link");
+      const record = await run();
+      expect(record.findings).toEqual([]);
+      expect(record.status).toBe("pass");
+    });
+
+    it("matches a global, anchored test file spelling from the start of every path", async () => {
+      await put("spec/parse.js", `${SKIPPED}\n`);
+      await put("spec/lex.js", `${SKIPPED}\n`);
+      await commit("specs");
+      expect((await run()).findings).toEqual([]);
+      const record = await run({ spellings: { testFiles: [/^spec\//g] } });
+      expect(record.findings.map((finding) => finding.id)).toEqual(["skip:spec/lex.js:1", "skip:spec/parse.js:1"]);
+    });
+
+    it("counts the testNamePattern spelling only in a runner's configuration file", async () => {
+      await put("src/plain.ts", 'testNamePattern: "x",\n');
+      await put("test/np.test.ts", 'testNamePattern: "x",\n');
+      await commit("plain files");
+      expect((await run()).findings).toEqual([]);
+      await put("vitest.config.ts", 'testNamePattern: "x",\n');
+      await commit("config file");
+      expect((await run()).findings.map((finding) => [finding.category, finding.file])).toEqual([
+        ["only", "vitest.config.ts"],
+      ]);
+    });
+
+    it("takes the name of a test from the first group of a caller's spelling with no group named name", async () => {
+      await put("x.feature.js", "scenario 'adds'\nscenario 'subtracts'\n");
+      base = await commit("scenarios");
+      await put("x.feature.js", "scenario 'adds'\n");
+      await commit("drop one");
+      const record = await run({ spellings: { testFiles: [/\.feature\.js$/], tests: [/^scenario\s+'([^']*)'/] } });
+      expect(record.findings.map((finding) => [finding.id, finding.detail])).toEqual([
+        ["test-removed:x.feature.js:2", 'test "subtracts" removed'],
+      ]);
+    });
+
+    it("sanctions a finding with a reason one character long", async () => {
+      await put("test/math.test.ts", SUITE.replace('it("subtracts"', 'it.skip("subtracts"'));
+      await commit("skip");
+      const given = await run({ sanctions: { "skip:test/math.test.ts:8": "x" } });
+      expect(given.status).toBe("pass");
+      expect(given.findings[0]?.sanction).toBe("x");
+
+      await commit(`again\n\n${SANCTION_KEY}: skip:test/math.test.ts:8 y`);
+      const written = await run();
+      expect(written.status).toBe("pass");
+      expect(written.findings[0]?.sanction).toBe("y");
     });
   });
 });
