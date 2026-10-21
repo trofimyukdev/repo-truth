@@ -554,7 +554,8 @@ describe("checkWeakenedTests", () => {
         expect(record.status).toBe("fail");
         expect(record.evidence).toHaveLength(1);
         expect(record.evidence[0]).toMatch(/not a git repository/i);
-        expect(record.evidence[0]).not.toMatch(/^Command failed/);
+        expect(record.evidence[0]).not.toContain("Command failed");
+        expect(record.evidence[0]).toMatch(/^revision "HEAD" does not name a commit: (fatal|error): /);
       } finally {
         await rm(elsewhere, { recursive: true, force: true });
       }
