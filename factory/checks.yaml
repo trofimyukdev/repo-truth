@@ -8,20 +8,23 @@
 # its own `measure` list plus the required commands of its `acceptance`, derived
 # from the TaskSpec so that the gate re-runs exactly what the task is measured by.
 #
-# Three rungs are omitted rather than declared empty, which is how this file says
+# Two rungs are omitted rather than declared empty, which is how this file says
 # "nothing here":
 #   format         - no formatter; style here is reviewed, not machine-enforced.
 #   lint           - no linter in package.json. `npm run typecheck` and the
 #                    compiler's strictness carry that load today.
-#   full_suite     - `npx vitest run` below already runs every test there is.
-#                    The rung arrives when a suite exists that the unit rung does
-#                    not cover.
 #
-# `project_truth` is the interesting omission and the one to watch: this package
-# EXISTS to become that rung. Once `repo-truth check` is a command (task RT-07),
-# this repository runs its own checks on itself and the entry belongs here. It is
-# absent today because the command does not exist, and a rung naming a command
-# that is not built is a ladder that fails for the wrong reason.
+# `full_suite` is the end-to-end suite (RT-17): it runs the built command the way
+# a user does, as a child process over throwaway repositories, and `npx vitest
+# run` does not collect it. It is also the rung the controller's post-merge smoke
+# runs on each merged commit, so with it every landing is measured again after it
+# lands.
+#
+# `project_truth` is still omitted, and the one to watch: this package EXISTS to
+# become that rung. Its command is this repository's own `repo-truth check` over
+# the tree under test; it is added once the weakened-tests check stops reading a
+# skip marker inside a string literal as a skipped test (RT-58), which today
+# would refuse honest suite work.
 version: 1
 
 ladder:
@@ -36,3 +39,7 @@ ladder:
   build:
     - name: build
       command: npm run build
+
+  full_suite:
+    - name: e2e
+      command: npm run build && node --test test/e2e/cli.e2e.mjs
