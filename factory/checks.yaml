@@ -20,11 +20,14 @@
 # runs on each merged commit, so with it every landing is measured again after it
 # lands.
 #
-# `project_truth` is still omitted, and the one to watch: this package EXISTS to
-# become that rung. Its command is this repository's own `repo-truth check` over
-# the tree under test; it is added once the weakened-tests check stops reading a
-# skip marker inside a string literal as a skipped test (RT-58), which today
-# would refuse honest suite work.
+# `project_truth` runs this package's own command over the tree under test. A
+# rung is given no range, so the command names the last commit of the tree:
+# `--base HEAD^1 --candidate HEAD`. On a merge - the integration ladder, the
+# baseline of the base branch - that is the whole landing; on a candidate's own
+# tree it is the builder's last commit. `RT-03` is left out: a builder's commit
+# names no task in a trailer, the integrator writes that trailer on the merge,
+# and the maintainer's own commits carry none either. `--no-fetch`: the tree
+# under test has every commit it needs, and a rung does not reach the network.
 version: 1
 
 ladder:
@@ -39,6 +42,10 @@ ladder:
   build:
     - name: build
       command: npm run build
+
+  project_truth:
+    - name: repo-truth
+      command: npm run build && node dist/cli.js check --base HEAD^1 --candidate HEAD --no-fetch --except RT-03
 
   full_suite:
     - name: e2e
