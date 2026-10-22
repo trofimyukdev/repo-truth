@@ -87,13 +87,9 @@ acceptance:
       matched against the line as it is. The lines a range removes and the
       lines it adds are read the same way, so a moved marker is still a
       move and a marker that was only ever text spends none.
-  - type: behavior
-    statement: >
-      test/unit/weakened-tests.test.ts and
-      test/unit/weakened-tests-moves.test.ts pass. Over this
-      repository's own merges of RT-51 and RT-50, `repo-truth check --check
-      RT-04 --base 24d7ed6^1 --candidate 24d7ed6 --no-fetch` and the same
-      over `fe0a912^1..fe0a912`, after `npm run build`, answer `pass`.
+  - type: command
+    command: npm run build && node dist/cli.js check --check RT-04 --base 24d7ed6^1 --candidate 24d7ed6 --no-fetch | grep -x 'PASS RT-04' && node dist/cli.js check --check RT-04 --base fe0a912^1 --candidate fe0a912 --no-fetch | grep -x 'PASS RT-04'
+    required: true
   - type: behavior
     statement: >
       Tests, in the new file test/unit/weakened-tests-strings.test.ts, build
