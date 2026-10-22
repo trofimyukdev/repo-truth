@@ -4,7 +4,7 @@
     "minimum": "0.0.0"
   },
   "claude_cli": {
-    "tested": "2.1.233",
+    "tested": "2.1.306",
     "minimum": "2.1.233"
   },
   "model_ids": [
@@ -13,6 +13,7 @@
     "claude-opus-5",
     "claude-sonnet-5-5",
     "claude-sonnet-5",
+    "claude-haiku-5-5",
     "claude-haiku-4-5-20251001"
   ]
 }
