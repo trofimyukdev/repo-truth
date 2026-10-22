@@ -339,7 +339,13 @@ function kindsOf(path: string, spellings: WeakeningSpellings): Set<MarkerScope> 
   return kinds;
 }
 
-function markersOn(text: string, kinds: ReadonlySet<MarkerScope>, spellings: WeakeningSpellings): Set<"skip" | "only"> {
+/** A comment, kept whole, or a string literal on one line, whose text is dropped. */
+const COMMENT_OR_STRING = /\/\/.*|\/\*.*?(?:\*\/|$)|(['"`])(?:\\.|(?!\1)[^\\])*\1/g;
+
+function markersOn(rawText: string, kinds: ReadonlySet<MarkerScope>, spellings: WeakeningSpellings): Set<"skip" | "only"> {
+  const text = kinds.has("test")
+    ? rawText.replace(COMMENT_OR_STRING, (all, mark?: string) => (mark === undefined ? all : mark + mark))
+    : rawText;
   const categories = new Set<"skip" | "only">();
   for (const marker of spellings.markers) {
     if (marker.scope.some((scope) => kinds.has(scope)) && matches(marker.pattern, text) !== null) {
