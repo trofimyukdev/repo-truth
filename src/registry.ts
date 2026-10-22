@@ -9,6 +9,8 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CheckRecord } from "./index.js";
+import { OPTION_KINDS } from "./config.js";
+import type { OptionKind, OptionKinds } from "./config.js";
 import { checkCommitRange } from "./commit-range.js";
 import { checkMeasurementRule } from "./measurement-rule.js";
 import { checkTrailers } from "./trailers.js";
@@ -38,19 +40,62 @@ export interface ResolvedRange {
   readonly candidate: string;
 }
 
+/** The options a check takes, from the name of each to its kind. */
+export type EntryOptions = { readonly [option: string]: OptionKind };
+
 export interface RegistryEntry {
   readonly name: string;
-  readonly run: (repo: Repository, range: ResolvedRange) => CheckRecord | Promise<CheckRecord>;
+  /** The options the check takes; absent on an entry written by hand that takes none. */
+  readonly options?: EntryOptions;
+  readonly run: (
+    repo: Repository,
+    range: ResolvedRange,
+    options?: { readonly [option: string]: unknown },
+  ) => CheckRecord | Promise<CheckRecord>;
 }
 
-function entry(
-  name: string,
-  check: (options: { cwd: string; base: string; candidate: string }) => CheckRecord | Promise<CheckRecord>,
-): RegistryEntry {
+type CheckFunction = (options: { cwd: string; base: string; candidate: string }) => CheckRecord | Promise<CheckRecord>;
+
+function entry(name: string, check: CheckFunction, declared: EntryOptions = {}): RegistryEntry {
+  const options: EntryOptions = Object.fromEntries(Object.entries(declared));
   return {
     name,
-    run: (repo, range) => check({ cwd: repo.cwd, base: range.base, candidate: range.candidate }),
+    options,
+    run: (repo, range, given) => {
+      const handed: { [option: string]: unknown } = {};
+      if (typeof given === "object" && given !== null) {
+        for (const option of Object.keys(options)) {
+          if (Object.hasOwn(given, option)) handed[option] = given[option];
+        }
+      }
+      return check(
+        Object.assign(handed, { cwd: repo.cwd, base: range.base, candidate: range.candidate }) as Parameters<CheckFunction>[0],
+      );
+    },
   };
+}
+
+const RESERVED_OPTIONS = ["cwd", "base", "candidate", "sanctions"];
+
+/** What is wrong with a module's optionKinds, or undefined when it is valid. */
+function optionKindsProblem(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return "its optionKinds is not a plain object";
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return "its optionKinds is not a plain object";
+  for (const [option, kind] of Object.entries(value)) {
+    if (RESERVED_OPTIONS.includes(option)) return "its optionKinds declares the option " + option + ", which is not its to declare";
+    if (typeof kind !== "string" || !(OPTION_KINDS as readonly string[]).includes(kind)) {
+      return "its optionKinds gives the option " + option + " a kind that is none of " + OPTION_KINDS.join(", ");
+    }
+  }
+  return undefined;
+}
+
+/** The options of every entry given, by entry name, in the form parseConfig reads. */
+export function optionKindsOf(entries: readonly RegistryEntry[]): OptionKinds {
+  return Object.fromEntries(entries.map((e) => [e.name, Object.fromEntries(Object.entries(e.options ?? {}))]));
 }
 
 const OWN_ENTRIES: RegistryEntry[] = [
@@ -63,19 +108,17 @@ const OWN_ENTRIES: RegistryEntry[] = [
   entry("RT-09", checkConflictMarkers),
   entry("RT-10", checkPortablePaths),
   entry("RT-11", checkSymlinks),
-  entry("RT-12", checkLargeBlobs),
+  entry("RT-12", checkLargeBlobs, { maxBytes: "integer" }),
   entry("RT-14", checkLoweredThresholds),
   entry("RT-16", checkSnapshotRefreshes),
-  entry("RT-18", checkDependencySources),
-  entry("RT-19", checkReplayedFigures),
+  entry("RT-18", checkDependencySources, { registries: "strings" }),
+  entry("RT-19", checkReplayedFigures, { timeoutMs: "integer" }),
 ];
-
-type CheckFunction = (options: { cwd: string; base: string; candidate: string }) => CheckRecord | Promise<CheckRecord>;
 
 function failingEntry(file: string, extension: string, cause: string): RegistryEntry {
   const name = "checks/" + file.slice(0, -extension.length);
   const record: CheckRecord = { name, status: "fail", evidence: [file + ": " + cause] };
-  return { name, run: () => record };
+  return { name, options: {}, run: () => record };
 }
 
 function isModuleFile(file: string, extension: string): boolean {
@@ -109,12 +152,13 @@ export async function loadCheckDirectory(directory: URL, extension: string): Pro
   const taken = new Set<string>(OWN_ENTRIES.map((e) => e.name));
   for (const file of files) {
     let problem: string | undefined;
-    let mod: { name?: unknown; check?: unknown } = {};
+    let mod: { name?: unknown; check?: unknown; optionKinds?: unknown } = {};
     try {
       mod = ((await import(pathToFileURL(join(path, file)).href)) ?? {}) as typeof mod;
       if (typeof mod.name !== "string" || mod.name === "") problem = "exports no name that is a non-empty string";
       else if (typeof mod.check !== "function") problem = "exports no check that is a function";
       else if (taken.has(mod.name)) problem = "its name " + mod.name + " is already registered";
+      else if ("optionKinds" in mod) problem = optionKindsProblem(mod.optionKinds);
     } catch (error) {
       problem = "could not be loaded: " + (error instanceof Error ? error.message : String(error));
     }
@@ -125,7 +169,7 @@ export async function loadCheckDirectory(directory: URL, extension: string): Pro
       continue;
     }
     taken.add(mod.name as string);
-    entries.push(entry(mod.name as string, mod.check as CheckFunction));
+    entries.push(entry(mod.name as string, mod.check as CheckFunction, mod.optionKinds as EntryOptions | undefined));
   }
   return entries;
 }
