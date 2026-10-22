@@ -1,0 +1,151 @@
+id: RT-59
+repo: repo-truth
+priority: 31
+milestone: M0
+title: The registry declares each check's options and hands them to the check
+
+outcome: >
+  RT-54 reads repo-truth.json and checks it against the option kinds each
+  check declares, but nothing declares them yet and nothing hands an
+  option to a check: an entry of src/registry.ts calls its check with
+  `cwd`, `base` and `candidate` and nothing else, so RT-12's `maxBytes`,
+  RT-18's `registries` and RT-19's `timeoutMs` stay out of reach of any
+  caller but a test, and the options RT-55 and RT-57 already export as
+  `optionKinds` are read by nobody. This task makes the registry the one
+  place that says which options each check takes and the road by which
+  they reach it: every entry declares its options, a module of the check
+  directory declares its own by exporting `optionKinds`, the registry
+  gives the reader the kinds of every check in one call, and an entry's
+  `run` hands the check the options it is given - never in place of the
+  range it answers for. The command reads the file and passes the options
+  in a later task; until then nothing a user sees changes.
+
+  Written on 2026-10-22 under the maintainer's rule of 2026-09-30 that
+  every not_done_if line of a spec in this repository is covered by a
+  holdout acceptance item or by a deterministic check the spec names: the
+  holdout item below is the gate's, and the builder is never shown it.
+  Its tests go in a new test file of their own, so test/unit/registry.test.ts
+  stays as it is and keeps passing; every check module those tests load is
+  written at run time into a directory under the operating system's
+  temporary directory.
+
+measure:
+  - npx vitest run test/unit/registry-options.test.ts test/unit/registry.test.ts
+
+creates_test_files:
+  - test/unit/registry-options.test.ts
+
+not_done_if:
+  - "an entry of the registry's own declares options other than these - RT-12 `maxBytes` of kind `integer`, RT-18 `registries` of kind `strings`, RT-19 `timeoutMs` of kind `integer`, and no option for every other own entry"
+  - "a module of the check directory that exports a valid `optionKinds` gets an entry without those options, or a module that exports none gets an entry with any"
+  - "a module whose `optionKinds` is not a plain object, holds a kind other than `integer`, `boolean`, `string` and `strings`, or declares an option named `cwd`, `base`, `candidate` or `sanctions`, is registered as a working entry instead of an entry whose record fails and names the file and the cause"
+  - "an entry's `run` given options does not hand the check an option its entry declares, hands it one the entry does not declare, or lets an option replace `cwd`, `base` or `candidate`"
+  - "an entry's `run` given no options, or an empty object, calls its check otherwise than before this task, so a record the command prints changes"
+  - "`optionKindsOf` leaves out an entry, gives an entry with no options anything but an empty object, or answers kinds that src/config.ts `parseConfig` cannot read"
+  - "the task changes test/unit/registry.test.ts, either test file fails, `npm run typecheck` fails, or the task changes any file but src/registry.ts and test/unit/registry-options.test.ts"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/registry-options.test.ts test/unit/registry.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: behavior
+    statement: >
+      In src/registry.ts, `RegistryEntry` gains `options`, a plain object
+      from the name of each option the check takes to its kind, an
+      `OptionKind` of src/config.ts (`integer`, `boolean`, `string` or
+      `strings`). It is an optional property of the type, so that the
+      entries test/unit/cli.test.ts and test/unit/action.test.ts write by
+      hand, which have none, still compile under `npm run typecheck`; every
+      entry the registry itself makes has it, an empty object for an entry
+      whose check takes none. The
+      registry's own entries declare exactly: RT-12 `{ maxBytes: "integer" }`,
+      RT-18 `{ registries: "strings" }`, RT-19 `{ timeoutMs: "integer" }`,
+      and an empty object for every other own entry. A module of the check
+      directory declares its options by exporting `optionKinds`, a plain
+      object of the same form; a module that exports no `optionKinds` takes
+      none. A module whose `optionKinds` is present and is not a plain
+      object - `null` and an array among them - holds a value that is not
+      one of the four kinds, or declares
+      an option named `cwd`, `base`, `candidate` or `sanctions` is not
+      registered as a working entry: like every other module that cannot be
+      registered, it becomes an entry whose record fails and whose evidence
+      names the file and the cause. An entry whose record fails declares no
+      option: its `options` is an empty object.
+  - type: behavior
+    statement: >
+      An entry's `run(repo, range, options)` takes an optional third
+      argument, a plain object from option names to values, and calls its
+      check with every option of that object its entry declares, and with
+      `cwd`, `base` and `candidate` from `repo` and `range` always - an
+      option of any name never replaces those three. An option the entry
+      does not declare is not handed to the check. The values are handed as
+      given; checking them against their kinds is src/config.ts's. Called
+      with no third argument, or with an empty object, `run` calls the check
+      exactly as before this task, so the command, which passes none, prints
+      the same records. `optionKindsOf(entries)`, exported from
+      src/registry.ts, answers a plain object from the name of every entry
+      it is given to a copy of that entry's options, an empty object for an
+      entry with none or with no `options` property - the `OptionKinds`
+      src/config.ts `parseConfig` takes;
+      `optionKindsOf(REGISTRY)` thus holds every registered check, RT-55's
+      `allowedSuffixes` and RT-57's `forbidden` and `allowed` among them.
+  - type: behavior
+    statement: >
+      Tests, in the new file test/unit/registry-options.test.ts, assert the
+      options of the registry's own entries; load check directories written
+      under the operating system's temporary directory, removed when the
+      suite ends, holding a module with a valid `optionKinds`, one with
+      none, one whose `optionKinds` is not a plain object, one with an
+      unknown kind and one that declares `cwd`; drive `run` with options a
+      check records - a declared one, an undeclared one and one named
+      `base` - and with none; and feed `optionKindsOf` of such entries to
+      src/config.ts `parseConfig`.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-59.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/registry.ts
+  - test/unit/registry-options.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/config.ts
+  - src/cli.ts
+  - src/index.ts
+  - src/action.ts
+  - src/checks/**
+  - test/unit/registry.test.ts
+  - test/unit/config.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:registry-options]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

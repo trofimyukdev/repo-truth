@@ -21,6 +21,16 @@ outcome: >
   still is. A configuration file is read as before: a quoted key such as
   `"testNamePattern"` there is the setting itself.
 
+  Written again on 2026-10-22. The first version was cancelled because
+  the factory's mutation probe, which then planted its mutants over the
+  whole of a file a change modified, could not measure
+  src/weakened-tests.ts within its cap of carries. The probe now plants
+  only on the lines a change adds or replaces, and how many it plants
+  there depends on the code: a loop over the line's characters gives
+  many, some of which spin until their time bound, and one regular
+  expression gives few. The reading this task asks for is the same;
+  this version asks that it be one regular expression and its use.
+
   Written on 2026-10-21 under the maintainer's rule of 2026-09-30 that
   every not_done_if line of a spec in this repository is covered by a
   holdout acceptance item or by a deterministic check the spec names: the
@@ -42,6 +52,7 @@ not_done_if:
   - "a code marker the range only moves within a test file becomes a finding, or a code marker the range adds where it removes a line that held the same marker only as text is not a finding"
   - "over this repository's own merge of RT-51 (24d7ed6^1..24d7ed6) or of RT-50 (fe0a912^1..fe0a912) `repo-truth check --check RT-04` still answers `fail`"
   - "the task changes test/unit/weakened-tests.test.ts or test/unit/weakened-tests-moves.test.ts, either fails, or the task changes any file but src/weakened-tests.ts and test/unit/weakened-tests-strings.test.ts"
+  - "the change to src/weakened-tests.ts reads the line in a loop of its own - it adds a `for`, `while` or `do` statement - or adds or replaces more than twenty lines of that file, comment lines included"
 
 acceptance:
   - type: command
@@ -62,8 +73,15 @@ acceptance:
       the next `*/` or the end of the line; a comment's text is kept as
       code, and a quote character inside a comment opens no string.
       Everything outside a string is code, a comment included; a regular
-      expression literal is not told apart, a limit this task accepts. For a template literal, `${...}` within it
-      is part of its text. On a line of a file whose kinds include `test`,
+      expression literal is not told apart, a limit this task accepts, and
+      a template literal that spans lines is read one line at a time. For a
+      template literal, `${...}` within it is part of its text. One regular
+      expression states that reading whole, and src/weakened-tests.ts reads
+      such a line with it, by `replace`, in code that holds no loop: every
+      match of
+      `/\/\/.*|\/\*.*?(?:\*\/|$)|(['"`])(?:\\.|(?!\1)[^\\])*\1/g`, taken
+      left to right, is kept as it is when it is a comment
+      and becomes its two quote characters when it is a string. On a line of a file whose kinds include `test`,
       every marker is matched against the line so changed; on a line of any
       other file - a configuration file among them - every marker is
       matched against the line as it is. The lines a range removes and the
@@ -71,10 +89,8 @@ acceptance:
       move and a marker that was only ever text spends none.
   - type: behavior
     statement: >
-      Nothing else of RT-04 changes: its record, its findings, their ids,
-      categories, lines and evidence, its sanctions, its spellings and how
-      it reads a range stay as they are, and test/unit/weakened-tests.test.ts
-      and test/unit/weakened-tests-moves.test.ts pass unchanged. Over this
+      test/unit/weakened-tests.test.ts and
+      test/unit/weakened-tests-moves.test.ts pass. Over this
       repository's own merges of RT-51 and RT-50, `repo-truth check --check
       RT-04 --base 24d7ed6^1 --candidate 24d7ed6 --no-fetch` and the same
       over `fe0a912^1..fe0a912`, after `npm run build`, answer `pass`.
