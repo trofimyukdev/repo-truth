@@ -57,3 +57,6 @@ id = "claude-sonnet-5-5"
 [budget]
 weekly_threshold_pct = 95
 weekly_reserve_pct = 5
+
+[notify]
+command = 'mkdir -p "$HOME/.config/millwright/inbox" && cat >> "$HOME/.config/millwright/inbox/repo-truth.jsonl"'
