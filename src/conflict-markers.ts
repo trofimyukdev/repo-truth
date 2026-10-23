@@ -168,6 +168,7 @@ async function addedLines(
   let oldLeft = 0;
   let newLeft = 0;
   let newLine = 0;
+  let lastHeader = "";
 
   // Both listings come from the same diff, so the Nth `diff --git` section is the Nth name.
   for (const raw of patch.toString("latin1").split("\n")) {
@@ -182,8 +183,12 @@ async function addedLines(
       continue;
     }
     if (raw.startsWith("diff --git ")) {
-      current = [];
-      files.push({ path: names[files.length] ?? "", lines: current });
+      // A path whose type changes is two sections under one identical header: one path.
+      if (raw !== lastHeader) {
+        current = [];
+        files.push({ path: names[files.length] ?? "", lines: current });
+      }
+      lastHeader = raw;
       continue;
     }
     const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
