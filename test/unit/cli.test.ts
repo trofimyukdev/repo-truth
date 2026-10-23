@@ -217,6 +217,7 @@ describe("output", () => {
       schema: "repo-truth.check/v1",
       base: first,
       candidate: second,
+      config: null,
       ok: false,
       exitCode: 1,
       records: [
@@ -579,6 +580,7 @@ describe("registry and output", () => {
       schema: "repo-truth.check/v1",
       base: first,
       candidate: second,
+      config: null,
       ok: false,
       exitCode: 1,
       records: [
