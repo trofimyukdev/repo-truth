@@ -1,0 +1,159 @@
+id: RT-60
+repo: repo-truth
+priority: 30
+milestone: M0
+title: The command reads repo-truth.json at the base, or the file `--config` names, and refuses a bad one with exit 2
+
+outcome: >
+  RT-54 reads and checks a configuration file and RT-59 makes the registry
+  declare each check's options and hand them to the check, but the command
+  still reads no file and hands no option: `repo-truth check` calls every
+  entry's `run` with the repository and the range only, so a user cannot
+  reach RT-12's `maxBytes` or any other declared option. This task makes
+  the command do it. Before it runs any check it reads the configuration
+  through src/config.ts `readConfig` - from repo-truth.json at the base the
+  range resolved to, or from the file a new `--config <path>` names - checked
+  against the kinds of every registered check (`optionKindsOf` of the
+  registry), and hands each selected check the options the file gives it. A
+  configuration `readConfig` refuses ends the run with exit 2 before any
+  check runs, its issues on stderr and no usage text, so a user can tell it
+  from a usage error. The JSON document names where the options came from.
+  The Action passes the file, and the README states the new option and
+  field, in later tasks. A stated limit: src/config.ts finds
+  repo-truth.json at the base through a path git reads against the
+  directory the command runs in, so the command reads the file when it runs
+  at the repository's root, as the Action and the factory run it; this task
+  does not change src/config.ts.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces in src/cli.ts
+  holds a construct its mutation catalogue always mutates, as the
+  not_done_if below says.
+
+  Written on 2026-10-23 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. Its tests go
+  in a new test file of their own; test/unit/cli.test.ts changes only where
+  its two whole JSON documents gain the new field.
+
+measure:
+  - npx vitest run test/unit/cli-config.test.ts test/unit/cli.test.ts
+
+creates_test_files:
+  - test/unit/cli-config.test.ts
+
+not_done_if:
+  - "with no `--config`, the options handed to the checks come from anything but repo-truth.json at the base commit the range resolved to (the merge base under `--target`): the candidate's copy, the working tree's, or no options when the base has the file; or a selected check the file names is not handed the options the file gives it"
+  - "`--config <path>` does not read the file at that path, a relative one against the directory the command runs in, in place of the base's file, or the base's file is still read beside it"
+  - "a configuration that `readConfig` refuses does not end the run with exit 2, nothing on stdout, the refusal's message on stderr with each issue on a line of its own and no usage text; or a configuration is refused only when a selected check takes the option it gets wrong, or accepted with an option of an unregistered check"
+  - "a run with no file, or a check the file does not name, calls a check otherwise than before this task, so a record the command prints changes; or the text output changes"
+  - "the JSON document does not hold `config` - the source `readConfig` answers, or null when there is none - between `candidate` and `ok`"
+  - "`list` or `--help` reads a configuration, or the usage text does not name `--config <path>`, or the exit-code statement at the head of src/cli.ts does not name a refused configuration among the causes of exit 2"
+  - "no line of code the task adds or replaces in src/cli.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but src/cli.ts, test/unit/cli.test.ts and test/unit/cli-config.test.ts, changes test/unit/cli.test.ts otherwise than by adding `config: null` to its two whole JSON documents, a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/cli-config.test.ts test/unit/cli.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: behavior
+    statement: >
+      In src/cli.ts, `repo-truth check` takes `--config <path>` (and
+      `--config=<path>`, as every option with a value), and its usage text
+      names `[--config <path>]`. After the range is resolved and before any
+      check runs, the command calls src/config.ts `readConfig` with the
+      directory it runs in, the resolved base commit - under `--target`, the
+      merge base - and the `--config` path when one is given, and with
+      `optionKindsOf` of the whole registry it runs from, not only of the
+      checks selected; given `--config`, the base's repo-truth.json is not
+      read at all. The `path` property is left out when `--config` is not
+      given: tsconfig.json sets `exactOptionalPropertyTypes`, so a property
+      whose value is `undefined` does not compile there. Each selected entry's
+      `run` is called with the options object the configuration answers under
+      that entry's name as its third argument, and with `undefined` as its
+      third argument, or none, when the configuration names no such check; a
+      run with no configuration file hands no options: `undefined` as the
+      third argument, or none. `list` and `--help` read no configuration.
+      The exit-code statement at the head of the file, in its entry for exit
+      2, names a configuration the command refuses among the causes.
+  - type: behavior
+    statement: >
+      When `readConfig` throws its `ConfigError`, the command writes nothing
+      to stdout, runs no check, writes `repo-truth: ` followed by the error's
+      message to stderr - the message's own lines kept, each issue on a line
+      of its own - and no usage text, and answers exit 2
+      (`EXIT_BAD_INVOCATION`). A usage error prints the usage text after its
+      message, so the two are told apart by what stderr holds. The JSON
+      document of `--format json` holds the keys `schema`, `base`,
+      `candidate`, `config`, `ok`, `exitCode` and `records`, in that order;
+      `config` is the `source` `readConfig` answers -
+      `repo-truth.json at <the base's first twelve hex digits>`, or the
+      `--config` path as given - or `null` when the base holds no file. In
+      test/unit/cli.test.ts each of the two whole JSON documents holds
+      `config: null` between `candidate` and `ok`.
+  - type: behavior
+    statement: >
+      Tests, in the new file test/unit/cli-config.test.ts, run `main` over
+      repositories made under the operating system's temporary directory,
+      removed when the suite ends, with registry entries of their own that
+      declare options and record what they are handed: a file at the base
+      hands its options and a different one at the candidate does not; a
+      `--config` file is read in place of the base's; a base with no file
+      hands nothing and the document's `config` is null; a refused file -
+      an option of the wrong kind, and a `--config` path that does not exist
+      - is exit 2 with nothing on stdout, no check run, the issue on stderr
+      and no usage text; and `--config` with no value is a usage error.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-60.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/cli.ts
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/config.ts
+  - src/registry.ts
+  - src/index.ts
+  - src/action.ts
+  - src/checks/**
+  - test/unit/config.test.ts
+  - test/unit/registry.test.ts
+  - test/unit/registry-options.test.ts
+  - test/unit/action.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:cli-config]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
