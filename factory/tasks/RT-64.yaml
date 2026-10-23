@@ -1,0 +1,128 @@
+id: RT-64
+repo: repo-truth
+priority: 29
+milestone: M0
+title: Conflict markers read a path whose type changes as one path - a link replaced by a file is no refusal
+
+outcome: >
+  RT-09 refuses a range in which a symbolic link is replaced by a regular
+  file, though no line it adds holds a conflict marker: it reads the paths a
+  range changes from git's list of names and the added lines from git's
+  patch, pairs the two in order, and fails the record when their counts
+  differ - and git writes a path whose type changes as two sections of the
+  patch, one for its old side and one for its new, under one name. The
+  record then says "git listed 1 changed path(s) but 2 in its patch" and
+  judges nothing. This task makes such a path one changed path to RT-09: the
+  lines its new side adds are judged as any added lines are, and every other
+  path keeps its own findings. It changes nothing else of RT-09.
+
+  The change stays small enough for the factory to measure its tests: each
+  mutant on a changed line costs one run of the tests that reach the module,
+  about half a minute, and a mutant of a loop can run to its time bound, so
+  it adds or replaces at most twenty lines of src/conflict-markers.ts and
+  adds no loop statement of its own, as the not_done_if below says. And
+  because the factory refuses a change none of whose lines it can mutate,
+  at least one line of code the change adds or replaces holds a construct
+  its mutation catalogue always mutates.
+
+  Written on 2026-10-23 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. Its tests go
+  in a new test file of their own, so test/unit/conflict-markers.test.ts
+  stays as it is and keeps passing.
+
+measure:
+  - npx vitest run test/unit/conflict-markers-types.test.ts test/unit/conflict-markers.test.ts
+
+creates_test_files:
+  - test/unit/conflict-markers-types.test.ts
+
+not_done_if:
+  - "a range in which a symbolic link becomes a regular file whose lines hold no conflict marker, or a regular file becomes a symbolic link, gets a RT-09 record that fails"
+  - "a conflict marker in the lines a regular file adds where a symbolic link was is not found, or is reported under another path or line"
+  - "beside a path whose type changes, another changed path's findings are reported under the wrong path or line, or are lost"
+  - "a range with no path whose type changes gets a RT-09 record other than before this task, or the refusal that names two different counts of changed paths is removed"
+  - "the change adds or replaces more than twenty lines of src/conflict-markers.ts (the + lines of `git diff -U0`), comment lines included, or adds a for, while or do statement of its own"
+  - "no line of code the change adds or replaces in src/conflict-markers.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes test/unit/conflict-markers.test.ts, either test file fails, `npm run typecheck` fails, or the task changes any file but src/conflict-markers.ts and test/unit/conflict-markers-types.test.ts"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/conflict-markers-types.test.ts test/unit/conflict-markers.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: behavior
+    statement: >
+      In src/conflict-markers.ts, a path whose type changes between the
+      ends of the range - a symbolic link that becomes a regular file, or a
+      regular file that becomes a symbolic link - is one changed path to
+      RT-09: both sections git's patch writes for it are read under that
+      one path, so the record does not fail on the count of changed paths
+      against the patch, and the lines the path's new side adds are judged
+      for conflict markers as the added lines of any path are, each finding
+      naming that path and the line in the candidate's file. Every other
+      changed path has its own findings, under its own path and line. For
+      any other difference between git's list and its patch the module fails
+      the record with the refusal whose evidence reads `git listed <n>
+      changed path(s) but <m> in its patch`.
+  - type: behavior
+    statement: >
+      Tests, in the new file test/unit/conflict-markers-types.test.ts, call
+      `checkConflictMarkers` over repositories made under the operating
+      system's temporary directory, removed when the suite ends: a symbolic
+      link replaced by a regular file with no marker passes; one replaced by
+      a file that holds an opening, a separator and a closing marker fails,
+      naming the path and each marker's line; a regular file replaced by a
+      symbolic link passes; and a path whose type changes between two other
+      changed files that hold markers leaves each of their findings under
+      its own path and line.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-64.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/conflict-markers.ts
+  - test/unit/conflict-markers-types.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/cli.ts
+  - src/registry.ts
+  - src/config.ts
+  - src/index.ts
+  - src/action.ts
+  - src/checks/**
+  - test/unit/conflict-markers.test.ts
+  - test/unit/cli.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:conflict-markers-types]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

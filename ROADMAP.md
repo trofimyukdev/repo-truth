@@ -47,6 +47,9 @@ stage's new tasks have landed; and the factory has run several passes with two b
   or focus marker only in code, never inside a string literal (RT-58).
 - `--except <name>`, and a command that lists the registered checks (RT-35), so that rungs and
   suites never hold a list of names that goes stale.
+- The conflict-markers check reads a path whose type changes - a symbolic link replaced by a
+  regular file, or the other way - as one path, so that the project-truth rung does not refuse such
+  a change when it holds no conflict marker (RT-64).
 
 Done when five merges in a row are measured `passed` after they land, and the replayed-figures check
 passes over this README's own figures from the root commit.
