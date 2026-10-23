@@ -8,7 +8,7 @@
  *   1  at least one check failed
  *   2  bad invocation or unrunnable environment (unknown option, unknown check,
  *      `--except` with `--check` or naming every check, a revision that names no
- *      commit, a failed fetch). Never a check's finding.
+ *      commit, a failed fetch, a configuration the command refuses). Never a check's finding.
  *
  * `repo-truth list` answers 0 after printing the registered names, and 2 for any
  * argument but `--help` (which answers 0 with the usage). It writes nothing to stderr
@@ -23,7 +23,8 @@ import { fileURLToPath } from "node:url";
 
 import { assertPullRequestEvent, RangeResolutionError, resolveMergeBase } from "./action.js";
 import { allPassed, type CheckRecord } from "./index.js";
-import { REGISTRY, type RegistryEntry } from "./registry.js";
+import { ConfigError, readConfig, type ConfigOptions } from "./config.js";
+import { optionKindsOf, REGISTRY, type RegistryEntry } from "./registry.js";
 
 export const EXIT_OK = 0;
 export const EXIT_CHECK_FAILED = 1;
@@ -40,7 +41,7 @@ export interface CliIo {
 }
 
 const USAGE =
-  "usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--except <name>]... [--format text|json] [--no-fetch]\n" +
+  "usage: repo-truth check (--base <rev> | --target <rev>) --candidate <rev> [--check <name>]... [--except <name>]... [--format text|json] [--no-fetch] [--config <path>]\n" +
   "       repo-truth list";
 
 class InvocationError extends Error {}
@@ -54,12 +55,13 @@ interface Parsed {
   list: boolean;
   format: "text" | "json";
   fetch: boolean;
+  config: string | undefined;
   help: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Parsed {
   const [command, ...rest] = argv;
-  const parsed: Parsed = { base: "", target: undefined, candidate: "", checks: [], except: [], list: false, format: "text", fetch: true, help: false };
+  const parsed: Parsed = { base: "", target: undefined, candidate: "", checks: [], except: [], list: false, format: "text", fetch: true, config: undefined, help: false };
   if (command === "--help" || command === "-h") {
     parsed.help = true;
     return parsed;
@@ -117,6 +119,9 @@ function parseArgs(argv: readonly string[]): Parsed {
         parsed.format = format;
         break;
       }
+      case "--config":
+        parsed.config = value();
+        break;
       case "--no-fetch":
         parsed.fetch = false;
         break;
@@ -177,9 +182,11 @@ async function runOne(
   entry: RegistryEntry,
   cwd: string,
   range: { base: string; candidate: string },
+  given: ConfigOptions,
 ): Promise<CheckRecord> {
   try {
-    return await entry.run({ cwd }, range);
+    const options = Object.hasOwn(given, entry.name) ? given[entry.name] : undefined;
+    return await (options === undefined ? entry.run({ cwd }, range) : entry.run({ cwd }, range, options));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { name: entry.name, status: "fail", evidence: [`check threw: ${message}`] };
@@ -269,8 +276,13 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
       candidate = await resolveCommit(cwd, "--candidate", parsed.candidate);
     }
 
+    const read = await readConfig(
+      { cwd, base, ...(parsed.config !== undefined && { path: parsed.config }) },
+      optionKindsOf(registry),
+    );
+
     const records: CheckRecord[] = [];
-    for (const e of selected) records.push(await runOne(e, cwd, { base, candidate }));
+    for (const e of selected) records.push(await runOne(e, cwd, { base, candidate }, read.options));
 
     const ok = allPassed(records);
     const exitCode = ok ? EXIT_OK : EXIT_CHECK_FAILED;
@@ -279,6 +291,7 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
         schema: JSON_SCHEMA_ID,
         base,
         candidate,
+        config: read.source,
         ok,
         exitCode,
         records: records.map((r) => ({ name: r.name, status: r.status, evidence: [...r.evidence] })),
@@ -289,6 +302,10 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
     }
     return exitCode;
   } catch (error) {
+    if (error instanceof ConfigError) {
+      err(`repo-truth: ${error.message}\n`);
+      return EXIT_BAD_INVOCATION;
+    }
     const message = error instanceof Error ? error.message : String(error);
     err(`repo-truth: ${escapeControl(message)}\n`);
     if (error instanceof InvocationError || error instanceof RangeResolutionError) err(USAGE + "\n");
