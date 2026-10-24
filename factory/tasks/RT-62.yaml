@@ -1,0 +1,123 @@
+id: RT-62
+repo: repo-truth
+priority: 27
+milestone: M0
+title: The end-to-end suite runs the built command with a configuration file, and the checks added since it was written by `--check`
+
+outcome: >
+  The end-to-end suite (RT-17), the full_suite rung and the post-merge
+  smoke, runs the built command the way a user does, but it was written
+  before the configuration file existed and before RT-55, RT-56 and RT-57
+  were registered. Its cases never put a repo-truth.json in a repository,
+  never pass `--config`, never read the JSON document's `config` field, and
+  run the new checks only over a range on which each passes. So the build
+  could stop handing a check its options, read the file at the candidate,
+  ignore `--config`, print the usage after a refused configuration, or let
+  a binary file, a deleted workflow or a forbidden path pass, and every
+  rung would stay green. This task adds the cases that catch each of those,
+  in test/e2e/cli.e2e.mjs alone, run against the built command as a child
+  process over throwaway repositories, as the suite's other cases are. A
+  case that names a check first asserts that the built registry holds it,
+  so a check renamed or dropped fails the suite instead of leaving a case
+  that tests nothing.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own and use the ones the file already declares.
+
+  The change holds tests only: the factory's mutation probe has no source
+  line to plant on, the stage that scores the tests records the change as
+  one of test paths alone, and the holdout item below answers for it.
+
+  Written on 2026-10-24 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. No source
+  file changes.
+
+measure:
+  - npm run build && node --test test/e2e/cli.e2e.mjs
+
+not_done_if:
+  - "the suite stays green on a build whose command hands no check the options repo-truth.json gives it, or reads repo-truth.json at the candidate instead of at the base"
+  - "the suite stays green on a build whose command ignores `--config`, or whose JSON document holds no `config` field"
+  - "the suite stays green on a build that prints the usage text after a configuration it refuses, or that ends such a run with any exit code but 2"
+  - "the suite stays green on a build whose RT-55 passes a binary file the range adds, whose RT-56 passes a workflow the range deletes, or whose RT-57 passes a path its policy forbids; or a case that names one of those checks passes when the built registry does not hold it"
+  - "the suite fails on the build as it stands, or leaves files in the temporary directory after it ends"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, marked `only` or `todo`, or made to ask less - a line holding an `assert` it holds removed or rewritten among them; or the suite declares no new test"
+  - "the task changes any file but test/e2e/cli.e2e.mjs - a source file, package.json, a dependency"
+
+acceptance:
+  - type: command
+    command: npm run build && node --test test/e2e/cli.e2e.mjs
+    required: true
+  - type: behavior
+    statement: >
+      test/e2e/cli.e2e.mjs holds cases, each running the built command as a
+      child process over a throwaway repository under the operating
+      system's temporary directory, and each asserting the exit code, the
+      record of the check it names by `--check` and, for `--format json`,
+      the document: repo-truth.json at the base commit gives a check its
+      options (RT-57's `forbidden` fails a path it names; RT-12's
+      `maxBytes` fails a file above it and the same file passes with no
+      repo-truth.json), and the document's `config` is
+      `repo-truth.json at` followed by the base's first twelve hex digits;
+      a repo-truth.json that only the candidate holds or changes gives no
+      option; `--config <path>` reads that file in place of the base's,
+      with an absolute path and with a path relative to the directory the
+      command runs in, and the document's `config` is the path as given;
+      with no repo-truth.json the document's `config` is null, and the case
+      "a default run answers 0 or 1 with one record per registered check,
+      in order" asserts that too.
+  - type: behavior
+    statement: >
+      The suite's cases also assert that a configuration the command
+      refuses - an option of the wrong kind, a check no entry is registered
+      under, and a `--config` path that names no file - ends with exit 2,
+      nothing on stdout, stderr naming the problem and no usage text, each
+      of the three in text and in JSON; and that RT-55 fails a binary file the range adds
+      and passes a text one, RT-56 fails a workflow under
+      `.github/workflows/` the range deletes and passes a range that leaves
+      it alone, and RT-57 skips with no policy and fails a path its policy
+      forbids, each record's evidence naming the path. A case that names a
+      check asserts first that the built REGISTRY holds that name.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-62.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/e2e/cli.e2e.mjs
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/**
+  - test/unit/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:e2e]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

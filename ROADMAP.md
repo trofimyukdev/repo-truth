@@ -62,6 +62,8 @@ passes over this README's own figures from the root commit.
   registry declares each check's options and hands them to the check (RT-59); the command reads the
   file at the base of the range, or the one `--config` names, and refuses a bad one (RT-60); the
   Action's `config` input hands the command a file of its own as `--config` (RT-61).
+- The end-to-end suite runs the built command with a configuration file - at the base, and named
+  by `--config` - and the checks added since it was written by `--check` (RT-62).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 
