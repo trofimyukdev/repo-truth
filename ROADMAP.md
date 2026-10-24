@@ -61,7 +61,7 @@ passes over this README's own figures from the root commit.
   root on 2026-10-21; its reader is RT-54, which states the form he read before this commit. The
   registry declares each check's options and hands them to the check (RT-59); the command reads the
   file at the base of the range, or the one `--config` names, and refuses a bad one (RT-60); the
-  Action takes it up after that.
+  Action's `config` input hands the command a file of its own as `--config` (RT-61).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

@@ -1,0 +1,165 @@
+id: RT-61
+repo: repo-truth
+priority: 28
+milestone: M0
+title: The Action's `config` input reaches the command as `--config`
+
+outcome: >
+  RT-60 made `repo-truth check` read repo-truth.json at the base of the
+  range, or the file a `--config <path>` names, but the Action cannot pass
+  that option: action.yml declares two inputs, `checks` and `format`, and
+  src/action.ts `actionArguments` turns those two into arguments and
+  nothing else. So a workflow that wants a configuration of its own -
+  a file kept outside the repository's root, or a different one for one
+  job - has no way to name it. This task gives the Action a third input,
+  `config`, that reaches the command as `--config <path>`, by the road the
+  other two already take: one `env` entry of the step that runs the
+  command, read only by the program, never written into a script. An
+  empty `config`, the default, passes nothing, so the command reads
+  repo-truth.json at the pull request's merge base as it does today. A
+  stated limit, written into the input's description: the file `config`
+  names is read from the checked-out tree, which in a pull request is the
+  pull request's own copy, so that road does not hold the pull request to
+  the settings of its base; the default road does. The README states the
+  new input in a later task.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own and use the ones the file already declares.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces in src/action.ts
+  holds a construct its mutation catalogue always mutates, as the
+  not_done_if below says.
+
+  Written on 2026-10-24 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/action.test.ts
+
+not_done_if:
+  - "the `config` input is written into a `run` script as a `${{ }}` expression, or its value is split, expanded or run by a shell on its way to the command, instead of reaching it as one argument holding the text it is"
+  - "a set, non-empty `config` does not reach the command as `--config` followed by the value, after the arguments of `checks` and `format`, so the command does not read that file - a relative path against the step's working directory - in place of repo-truth.json at the merge base; or an empty `config` passes `--config`; or the input is required, has a default other than the empty string, or a description that does not name `--config` and repo-truth.json"
+  - "a configuration the command refuses, reached through the Action, does not end with exit 2, nothing on stdout, the refusal on stderr and no usage text, or the job summary does not say the checks did not run and hold the refusal"
+  - "`checks` or `format` stop reaching the command as they do at the merge base, the step that builds changes, the step stops passing `--target` with the pull request's base branch on `origin` and `--candidate` with its head commit, or `dist/action.js` run as a program stops exiting with the command's own code"
+  - "a test of test/unit/action.test.ts at the merge base is deleted, renamed, skipped, focused or made to ask less - a line holding an `expect(` it holds removed or rewritten among them"
+  - "no line of code the task adds or replaces in src/action.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but action.yml, src/action.ts and test/unit/action.test.ts, or does not change both action.yml and src/action.ts; action.yml is not valid YAML; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const a = await import("./dist/action.js"); const v = a.actionArguments(["check"], { REPO_TRUTH_CHECKS: "A", REPO_TRUTH_FORMAT: "json", REPO_TRUTH_CONFIG: "c.json" }); process.exitCode = Number(JSON.stringify(v) !== JSON.stringify(["check", "--check", "A", "--format", "json", "--config", "c.json"]))'''
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { spawnSync } = await import("node:child_process"); const { mkdtempSync, readFileSync, rmSync } = await import("node:fs"); const { join } = await import("node:path"); const { tmpdir } = await import("node:os"); const d = mkdtempSync(join(tmpdir(), "rt61-")); const f = join(d, "summary.md"); const r = spawnSync(process.execPath, ["dist/action.js", "check", "--no-fetch", "--base", "HEAD", "--candidate", "HEAD"], { encoding: "utf8", env: { ...process.env, REPO_TRUTH_CONFIG: "no-such-config.json", GITHUB_STEP_SUMMARY: f } }); let s = ""; try { s = readFileSync(f, "utf8"); } catch {} rmSync(d, { recursive: true, force: true }); process.exitCode = Number(!(r.status === 2 && r.stdout === "" && r.stderr.includes("no-such-config.json") && !r.stderr.includes("usage:") && s.includes("The checks did not run (exit code 2).") && s.includes("no-such-config.json")))'''
+    required: true
+  - type: behavior
+    statement: >
+      action.yml declares a third input, `config`: it is not required, its
+      default is the empty string, and its description names `--config`
+      and repo-truth.json and says that the file it names is read from the
+      checked-out tree in place of repo-truth.json at the pull request's
+      merge base. The step that runs the command maps it through one `env`
+      entry, `REPO_TRUTH_CONFIG`, whose value is exactly
+      `${{ inputs.config }}`; no other step names it; no `run` script of
+      action.yml holds a `${{` expression, and the step's script reads none
+      of `REPO_TRUTH_CHECKS`, `REPO_TRUTH_FORMAT` and `REPO_TRUTH_CONFIG`,
+      which only the program reads. `checks` (empty by default) and
+      `format` (`text` by default) map to `REPO_TRUTH_CHECKS` and
+      `REPO_TRUTH_FORMAT` in the same step; the step that builds runs
+      `npm ci && npm run build` in `${{ github.action_path }}`; the step
+      that runs the command runs
+      `exec node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"`,
+      with `REPO_TRUTH_TARGET` set to
+      `origin/${{ github.event.pull_request.base.ref }}` and
+      `REPO_TRUTH_CANDIDATE` to
+      `${{ github.event.pull_request.head.sha }}`.
+  - type: behavior
+    statement: >
+      src/action.ts `actionArguments(argv, env)` returns `argv` as given,
+      then the `--check` arguments of `env.REPO_TRUTH_CHECKS`, then
+      `--format` and its value when `env.REPO_TRUTH_FORMAT` is set and not
+      empty, then `--config` and `env.REPO_TRUTH_CONFIG` when that is set
+      and not empty - one argument holding the value as it is written, so a
+      value holding a space, `$(`, a backtick, a semicolon or a quote is one
+      path. Its doc comment says so. Run as a program, `dist/action.js`
+      exits with the code the command answers: a `config` naming a file
+      that does not exist, or a file the command refuses, is exit 2 with
+      nothing on stdout, the refusal on stderr and no usage text, and the
+      job summary it appends says "The checks did not run (exit code 2)."
+      and holds that refusal - the command item above runs that road
+      through the built program.
+  - type: behavior
+    statement: >
+      Tests in test/unit/action.test.ts:
+      `actionArguments` with an empty `REPO_TRUTH_CONFIG`, a path, a path
+      with every other input set, and a path holding a space and shell
+      characters, each asserting the whole array it returns; action.yml
+      read as text, asserting the `config` input, its default and the
+      words its description names, and the `env` entry; `main` run with the
+      array `actionArguments` returns over a throwaway repository, with
+      registry entries of the suite's own that declare an option and record
+      what they are handed, asserting that the options of the file the
+      input names reach the check and that the JSON document's `config` is
+      that path, and that a path naming no file is exit 2 with nothing on
+      stdout, no check run and no usage text; and `runAction` with a path
+      naming no file, asserting the summary of exit 2. Fixtures are built
+      under the operating system's temporary directory and removed when the
+      suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-61.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - action.yml
+  - src/action.ts
+  - test/unit/action.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - repo-truth.json
+  - src/cli.ts
+  - src/config.ts
+  - src/registry.ts
+  - src/index.ts
+  - src/checks/**
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:action]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
