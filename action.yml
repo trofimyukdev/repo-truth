@@ -9,6 +9,10 @@ inputs:
     description: "The form the checks are printed in: text or json."
     required: false
     default: "text"
+  config:
+    description: "A path passed to the command as --config, read in place of repo-truth.json at the pull request's merge base. A relative path is read against the step's working directory. The file is read from the checked-out tree, which in a pull request is the pull request's own copy, so this does not hold the pull request to the settings of its base; the default, empty, does. Empty passes nothing."
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -24,5 +28,6 @@ runs:
         REPO_TRUTH_BIN: ${{ github.action_path }}/dist/action.js
         REPO_TRUTH_CHECKS: ${{ inputs.checks }}
         REPO_TRUTH_FORMAT: ${{ inputs.format }}
+        REPO_TRUTH_CONFIG: ${{ inputs.config }}
       run: |
         exec node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"
