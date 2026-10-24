@@ -57,6 +57,11 @@ id = "claude-sonnet-5-5"
 [budget]
 weekly_threshold_pct = 95
 weekly_reserve_pct = 5
+# The dollar ceiling for one day, lowered from the controller's default (60)
+# to 15 on the maintainer's word of 2026-10-24. The ceiling for one tick,
+# max_usd_per_tick, keeps its default (12), which stays within it: the
+# controller refuses a tick ceiling above the day's.
+max_usd_per_day = 15
 
 [notify]
 command = 'mkdir -p "$HOME/.config/millwright/inbox" && cat >> "$HOME/.config/millwright/inbox/repo-truth.jsonl"'
