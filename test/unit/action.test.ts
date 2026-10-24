@@ -325,6 +325,52 @@ describe("actionArguments", () => {
       "text",
     ]);
   });
+
+  it("passes no --config when the config is empty or unset", () => {
+    expect(actionArguments(base, { REPO_TRUTH_CONFIG: "" })).toEqual(base);
+    expect(actionArguments(base, { REPO_TRUTH_CONFIG: undefined })).toEqual(base);
+  });
+
+  it("passes a path as --config after the checks and the format", () => {
+    expect(actionArguments(base, { REPO_TRUTH_CONFIG: "c.json" })).toEqual([...base, "--config", "c.json"]);
+    expect(actionArguments(base, { REPO_TRUTH_CONFIG: "c.json", REPO_TRUTH_FORMAT: "json", REPO_TRUTH_CHECKS: "A" })).toEqual([
+      ...base,
+      "--check",
+      "A",
+      "--format",
+      "json",
+      "--config",
+      "c.json",
+    ]);
+  });
+
+  it("keeps a path holding a space and shell characters as one argument", () => {
+    const path = "my dir/$(id);`id` 'q' \"d\" *.json";
+    expect(actionArguments(base, { REPO_TRUTH_CONFIG: path })).toEqual([...base, "--config", path]);
+  });
+});
+
+describe("action.yml config input", () => {
+  const text = readFileSync(join(__dirname, "..", "..", "action.yml"), "utf8");
+  const inputs = text.slice(text.indexOf("\ninputs:"), text.indexOf("\nruns:"));
+  const config = inputs.slice(inputs.indexOf("  config:"));
+
+  it("is optional, empty by default, and states what it does and its limit", () => {
+    expect(inputs.indexOf("  config:")).toBeGreaterThan(inputs.indexOf("  format:"));
+    expect(config).toMatch(/required: false/);
+    expect(config).toMatch(/default: ""/);
+    expect(config).toContain("--config");
+    expect(config).toContain("repo-truth.json");
+    expect(config).toContain("checked-out tree");
+    expect(config).toContain("merge base");
+  });
+
+  it("reaches the step through one env entry and no script names it", () => {
+    expect(text.match(/REPO_TRUTH_CONFIG/g)).toHaveLength(1);
+    expect(text).toMatch(/^ {8}REPO_TRUTH_CONFIG: \$\{\{ inputs\.config \}\}$/m);
+    expect(text.match(/inputs\.config/g)).toHaveLength(1);
+    expect(text.slice(text.indexOf("run: |"))).not.toContain("CONFIG");
+  });
 });
 
 describe("main with actionArguments", () => {
@@ -368,9 +414,48 @@ describe("main with actionArguments", () => {
     }
     expect(calls).toEqual([]);
   });
+
+  describe("with the config input", () => {
+    const seen: unknown[][] = [];
+    const recorder: RegistryEntry = {
+      name: "REC",
+      options: { limit: "integer" },
+      run: (...given) => {
+        seen.push(given.slice(2));
+        return { name: "REC", status: "pass", evidence: [] };
+      },
+    };
+    const settings = (limit: number) =>
+      JSON.stringify({ schema: "repo-truth.config/v1", checks: { REC: { limit } } });
+
+    it("hands the options of the file it names, and the document's config is that path", async () => {
+      useRegistry(recorder);
+      const dir = join(root, "config with $(spaces)");
+      mkdirSync(dir);
+      const file = join(dir, "other; one.json");
+      writeFileSync(file, settings(7));
+      seen.length = 0;
+      const env = { REPO_TRUTH_FORMAT: "json", REPO_TRUTH_CONFIG: file };
+      const r = await run(actionArguments(argv(), env), repo);
+      expect(r.code).toBe(EXIT_OK);
+      expect(seen).toEqual([[{ limit: 7 }]]);
+      expect(JSON.parse(r.stdout).config).toBe(file);
+    });
+
+    it("is exit 2 with nothing on stdout, no check run and no usage text for a path naming no file", async () => {
+      useRegistry(recorder);
+      seen.length = 0;
+      const r = await run(actionArguments(argv(), { REPO_TRUTH_CONFIG: "no-such-config.json" }), repo);
+      expect(r.code).toBe(EXIT_BAD_INVOCATION);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("no-such-config.json");
+      expect(r.stderr).not.toContain("usage:");
+      expect(seen).toEqual([]);
+    });
+  });
 });
 
-const tick = (n: number): string => "`".repeat(n);
+const tick =(n: number): string => "`".repeat(n);
 
 describe("jobSummary", () => {
   const sentences = [
@@ -461,6 +546,20 @@ describe("runAction", () => {
     expect(r.stdout).toBe("");
     expect(r.stderr).not.toBe("");
     expect(readFileSync(file, "utf8")).toBe(jobSummary(2, r.stderr));
+  });
+
+  it("holds the refusal in the summary for a config path naming no file", async () => {
+    useRegistry(stub("A", "pass"));
+    const file = summaryPath();
+    const r = await act(argv(), { GITHUB_STEP_SUMMARY: file, REPO_TRUTH_CONFIG: "no-such-config.json" });
+    expect(r.code).toBe(EXIT_BAD_INVOCATION);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("no-such-config.json");
+    expect(r.stderr).not.toContain("usage:");
+    const summary = readFileSync(file, "utf8");
+    expect(summary).toBe(jobSummary(2, r.stderr));
+    expect(summary).toContain("The checks did not run (exit code 2).");
+    expect(summary).toContain("no-such-config.json");
   });
 
   it("says one line on stderr and changes nothing else when the file cannot be written", async () => {
