@@ -83,7 +83,8 @@ to the job summary.
   with one behavior split off as a task of its own, RT-51); then commit-range hygiene (RT-52) and
   figure claims (RT-53).
 - Suite strength measured again on main after the modules landed: the configuration reader (RT-67),
-  binary files (RT-68), weakened workflows (RT-69), the path policy (RT-70).
+  binary files (RT-68), weakened workflows (RT-69), the path policy (RT-70), landing trailers
+  (RT-71).
 
 Done when at least twenty-two checks are registered and the factory has made at least forty
 verified merges here.
