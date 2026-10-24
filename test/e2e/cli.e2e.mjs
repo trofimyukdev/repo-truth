@@ -10,7 +10,7 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -76,6 +76,36 @@ function makeRepo(message = "add a file") {
   return { dir, base, candidate: git(dir, "rev-parse", "HEAD") };
 }
 
+/**
+ * A repository whose base commit holds `baseFiles` and whose candidate commit then
+ * removes `removed` and writes `added` (a string or a Buffer per path).
+ */
+function makeRepoWith({ baseFiles = {}, added = {}, removed = [] }) {
+  const dir = join(scratch, "repo-" + counter++);
+  execFileSync("git", ["init", "--quiet", dir], { env: GIT_ENV });
+  git(dir, "config", "user.name", "Test User");
+  git(dir, "config", "user.email", "test@example.com");
+  git(dir, "config", "commit.gpgsign", "false");
+  const put = (files) => {
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    }
+  };
+  put({ "README.md": "# fixture\n", ...baseFiles });
+  git(dir, "add", "-A");
+  git(dir, "commit", "--quiet", "-m", "initial commit");
+  const base = git(dir, "rev-parse", "HEAD");
+  for (const path of removed) rmSync(join(dir, path));
+  put({ "notes.txt": "some notes\n", ...added });
+  git(dir, "add", "-A");
+  git(dir, "commit", "--quiet", "-m", "change files");
+  return { dir, base, candidate: git(dir, "rev-parse", "HEAD") };
+}
+
+const configText = (checks) => JSON.stringify({ schema: "repo-truth.config/v1", checks }) + "\n";
+const BIG = "x".repeat(500) + "\n";
+
 /** `node <bin> check ...args` in `cwd`, as a process of its own. */
 function run(cwd, ...args) {
   ran++;
@@ -115,6 +145,20 @@ function assertRefused(result, mention) {
   assert.ok(result.stderr.includes(mention), "stderr names " + JSON.stringify(mention) + ": " + result.stderr);
 }
 
+/** One check's run over a range, as the document and the record it names. */
+function runCheck(cwd, repo, name, ...more) {
+  const result = run(cwd, "--base", repo.base, "--candidate", repo.candidate, "--check", name, "--format", "json", ...more);
+  const doc = parseDocument(result);
+  assert.deepEqual(doc.records.map((r) => r.name), [name]);
+  assertAgrees(doc, result);
+  return { result, doc, record: doc.records[0] };
+}
+
+function assertRefusedWithoutUsage(result, mention) {
+  assertRefused(result, mention);
+  assert.ok(!/usage/i.test(result.stderr), "stderr holds no usage text: " + result.stderr);
+}
+
 after(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
   scratch = undefined;
@@ -135,6 +179,7 @@ describe("repo-truth check, built", () => {
     assert.deepEqual(doc.records.map((r) => r.name), all);
     assert.equal(doc.base, base);
     assert.equal(doc.candidate, candidate);
+    assert.equal(doc.config, null);
     assertAgrees(doc, result);
   });
 
@@ -206,6 +251,169 @@ describe("repo-truth check, built", () => {
         "--no-such-option",
       );
     }
+  });
+
+  test("repo-truth.json at the base gives RT-57 its forbidden paths, and the document names the file", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-57"), "the built registry holds RT-57");
+    const repo = makeRepoWith({
+      baseFiles: { "repo-truth.json": configText({ "RT-57": { forbidden: ["secrets/**"] } }) },
+      added: { "secrets/key.txt": "k\n" },
+    });
+    const { result, doc, record } = runCheck(repo.dir, repo, "RT-57");
+    assert.equal(result.code, 1);
+    assert.equal(record.status, "fail");
+    assert.ok(record.evidence.some((e) => e.includes("secrets/key.txt")), record.evidence.join("\n"));
+    assert.equal(doc.config, "repo-truth.json at " + repo.base.slice(0, 12));
+  });
+
+  test("RT-57 skips with no policy and passes a range its policy does not reach", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-57"), "the built registry holds RT-57");
+    const bare = makeRepoWith({ added: { "secrets/key.txt": "k\n" } });
+    const skipped = runCheck(bare.dir, bare, "RT-57");
+    assert.equal(skipped.result.code, 0);
+    assert.equal(skipped.record.status, "skip");
+    const policed = makeRepoWith({
+      baseFiles: { "repo-truth.json": configText({ "RT-57": { forbidden: ["secrets/**"] } }) },
+      added: { "docs/key.txt": "k\n" },
+    });
+    const passed = runCheck(policed.dir, policed, "RT-57");
+    assert.equal(passed.result.code, 0);
+    assert.equal(passed.record.status, "pass");
+  });
+
+  test("RT-12 fails a file above the base's maxBytes and passes the same file with no repo-truth.json", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12"), "the built registry holds RT-12");
+    const limited = makeRepoWith({
+      baseFiles: { "repo-truth.json": configText({ "RT-12": { maxBytes: 100 } }) },
+      added: { "big.txt": BIG },
+    });
+    const failed = runCheck(limited.dir, limited, "RT-12");
+    assert.equal(failed.result.code, 1);
+    assert.equal(failed.record.status, "fail");
+    assert.ok(failed.record.evidence.some((e) => e.includes("big.txt")), failed.record.evidence.join("\n"));
+    const free = makeRepoWith({ added: { "big.txt": BIG } });
+    const passed = runCheck(free.dir, free, "RT-12");
+    assert.equal(passed.result.code, 0);
+    assert.equal(passed.record.status, "pass");
+    assert.equal(passed.doc.config, null);
+  });
+
+  test("a repo-truth.json that only the candidate holds or changes gives no option", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12") && all.includes("RT-57"), "the built registry holds RT-12 and RT-57");
+    const added = makeRepoWith({
+      added: {
+        "repo-truth.json": configText({ "RT-12": { maxBytes: 100 }, "RT-57": { forbidden: ["secrets/**"] } }),
+        "big.txt": BIG,
+        "secrets/key.txt": "k\n",
+      },
+    });
+    for (const name of ["RT-12", "RT-57"]) {
+      const { result, doc, record } = runCheck(added.dir, added, name);
+      assert.equal(result.code, 0, name);
+      assert.equal(record.status, name === "RT-57" ? "skip" : "pass", name);
+      assert.equal(doc.config, null);
+    }
+    const changed = makeRepoWith({
+      baseFiles: { "repo-truth.json": configText({ "RT-12": { maxBytes: 100000 } }) },
+      added: { "repo-truth.json": configText({ "RT-12": { maxBytes: 100 } }), "big.txt": BIG },
+    });
+    const kept = runCheck(changed.dir, changed, "RT-12");
+    assert.equal(kept.result.code, 0);
+    assert.equal(kept.record.status, "pass");
+    assert.equal(kept.doc.config, "repo-truth.json at " + changed.base.slice(0, 12));
+    const loosened = makeRepoWith({
+      baseFiles: { "repo-truth.json": configText({ "RT-12": { maxBytes: 100 } }) },
+      added: { "repo-truth.json": configText({ "RT-12": { maxBytes: 100000 } }), "big.txt": BIG },
+    });
+    const strict = runCheck(loosened.dir, loosened, "RT-12");
+    assert.equal(strict.result.code, 1);
+    assert.equal(strict.record.status, "fail");
+  });
+
+  test("--config reads that file in place of the base's, by absolute and by relative path", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12"), "the built registry holds RT-12");
+    const repo = makeRepoWith({
+      baseFiles: { "repo-truth.json": configText({ "RT-12": { maxBytes: 100000 } }) },
+      added: { "big.txt": BIG },
+    });
+    const tight = configText({ "RT-12": { maxBytes: 100 } });
+    assert.equal(runCheck(repo.dir, repo, "RT-12").record.status, "pass");
+
+    const absolute = join(scratch, "absolute-config-" + counter++ + ".json");
+    writeFileSync(absolute, tight);
+    const byAbsolute = runCheck(repo.dir, repo, "RT-12", "--config", absolute);
+    assert.equal(byAbsolute.result.code, 1);
+    assert.equal(byAbsolute.record.status, "fail");
+    assert.equal(byAbsolute.doc.config, absolute);
+
+    writeFileSync(join(repo.dir, "alt-config.json"), tight);
+    const byRelative = runCheck(repo.dir, repo, "RT-12", "--config", "alt-config.json");
+    assert.equal(byRelative.result.code, 1);
+    assert.equal(byRelative.record.status, "fail");
+    assert.equal(byRelative.doc.config, "alt-config.json");
+  });
+
+  test("with no repo-truth.json a default run's document has config null", async () => {
+    await start();
+    const { dir, base, candidate } = makeRepo();
+    const result = run(dir, "--base", base, "--candidate", candidate, "--format", "json");
+    assert.ok(result.code === 0 || result.code === 1, result.stderr);
+    assert.equal(parseDocument(result).config, null);
+  });
+
+  test("a configuration the command refuses exits 2, stdout empty, the problem named, no usage text", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12"), "the built registry holds RT-12");
+    const wrongKind = makeRepoWith({ baseFiles: { "repo-truth.json": configText({ "RT-12": { maxBytes: "big" } }) } });
+    const unknownCheck = makeRepoWith({ baseFiles: { "repo-truth.json": configText({ "RT-no-such-check": { a: 1 } }) } });
+    const clean = makeRepoWith({});
+    const missing = join(scratch, "no-such-config-" + counter++ + ".json");
+    const cases = [
+      [wrongKind, [], "checks.RT-12.maxBytes"],
+      [unknownCheck, [], "RT-no-such-check"],
+      [clean, ["--config", missing], missing],
+    ];
+    for (const [repo, extra, mention] of cases) {
+      for (const format of [[], ["--format", "json"]]) {
+        const result = run(repo.dir, "--base", repo.base, "--candidate", repo.candidate, ...format, ...extra);
+        assertRefusedWithoutUsage(result, mention);
+      }
+    }
+  });
+
+  test("RT-55 fails a binary file the range adds and passes a text one", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-55"), "the built registry holds RT-55");
+    const binary = makeRepoWith({ added: { "assets/blob.bin": Buffer.from([1, 2, 0, 3, 4]) } });
+    const failed = runCheck(binary.dir, binary, "RT-55");
+    assert.equal(failed.result.code, 1);
+    assert.equal(failed.record.status, "fail");
+    assert.ok(failed.record.evidence.some((e) => e.includes("assets/blob.bin")), failed.record.evidence.join("\n"));
+    const text = makeRepoWith({ added: { "assets/words.txt": "plain words\n" } });
+    const passed = runCheck(text.dir, text, "RT-55");
+    assert.equal(passed.result.code, 0);
+    assert.equal(passed.record.status, "pass");
+  });
+
+  test("RT-56 fails a workflow the range deletes and passes a range that leaves it alone", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-56"), "the built registry holds RT-56");
+    const workflow = ".github/workflows/ci.yml";
+    const files = { [workflow]: "name: ci\non: push\njobs: {}\n" };
+    const deleted = makeRepoWith({ baseFiles: files, removed: [workflow] });
+    const failed = runCheck(deleted.dir, deleted, "RT-56");
+    assert.equal(failed.result.code, 1);
+    assert.equal(failed.record.status, "fail");
+    assert.ok(failed.record.evidence.some((e) => e.includes(workflow)), failed.record.evidence.join("\n"));
+    const kept = makeRepoWith({ baseFiles: files });
+    const passed = runCheck(kept.dir, kept, "RT-56");
+    assert.equal(passed.result.code, 0);
+    assert.equal(passed.record.status, "pass");
   });
 
   test("cases ran, under the operating system's temporary directory", async () => {
