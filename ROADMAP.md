@@ -64,6 +64,8 @@ passes over this README's own figures from the root commit.
   Action's `config` input hands the command a file of its own as `--config` (RT-61).
 - The end-to-end suite runs the built command with a configuration file - at the base, and named
   by `--config` - and the checks added since it was written by `--check` (RT-62).
+- The command hands every check the path `--config` names, as an option no configuration file
+  can set (RT-65).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

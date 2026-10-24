@@ -1,0 +1,153 @@
+id: RT-65
+repo: repo-truth
+priority: 26
+milestone: M0
+title: The command hands every check the path `--config` names, as the reserved option `config`
+
+outcome: >
+  `repo-truth check` reads its settings from one file: repo-truth.json at
+  the base of the range, or the file a `--config <path>` names (RT-60). A
+  check of the next task (RT-66) reports a range that changes that file,
+  and so it must know which file it was. Today a check learns nothing of
+  it: the command calls each entry with a repository holding `cwd` alone,
+  and src/registry.ts `entry()` hands a check `cwd`, `base`, `candidate`
+  and the options it declares, nothing else. A check cannot simply declare
+  an option for it either, because every declared option may be set by
+  the configuration file - the very file the check is to watch. This task
+  makes the path a fact of the run instead: the `Repository` the command
+  passes gains an optional `config`, the path `--config` named exactly as
+  it was given, absent when no `--config` was given; `entry()` hands it to
+  the check as the option `config`, beside `cwd`, `base` and `candidate`,
+  and takes it from the repository only, never from the options it is
+  given; and `config` joins the names a module of the check directory may
+  not declare, so no configuration file can set it. Nothing the command
+  prints, and none of its exit codes, changes.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces holds a construct
+  its mutation catalogue always mutates, as the not_done_if below says.
+
+  Written on 2026-10-24 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/config-handoff.test.ts
+
+creates_test_files:
+  - test/unit/config-handoff.test.ts
+
+not_done_if:
+  - "the built command, given `--config <path>` - as two arguments or as `--config=<path>` - does not hand every check it runs the option `config` holding the path exactly as it was given, a relative path not resolved and nothing added or cut; or, given no `--config`, hands a check an option named `config` at all"
+  - "a check is handed `config` from anything but the repository it is run with - an option named `config` among the options `run` is given reaches the check, or replaces the repository's - or `config` replaces `cwd`, `base` or `candidate`, or an option a check declares stops reaching it as it does at the merge base"
+  - "a module of the check directory that declares an option named `config` is registered as a check, instead of becoming an entry whose record fails and names the option as one that is not its to declare, as a module that declares `cwd` or `sanctions` does; or a configuration file that gives any check an option named `config` is not refused with exit 2"
+  - "the command's text output, its JSON document, its usage, any of its refusals or any of its exit codes changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/config-handoff.test.ts is not a file the task adds"
+  - "no line of code the task adds or replaces in src/registry.ts or src/cli.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but src/registry.ts, src/cli.ts and test/unit/config-handoff.test.ts, or does not change both src/registry.ts and src/cli.ts; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/config-handoff.test.ts
+    required: true
+  - type: command
+    command: npx vitest run test/unit/registry.test.ts test/unit/registry-options.test.ts test/unit/cli.test.ts test/unit/cli-config.test.ts test/unit/action.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs"); const { join } = await import("node:path"); const { tmpdir } = await import("node:os"); const { pathToFileURL } = await import("node:url"); const { loadCheckDirectory } = await import("./dist/registry.js"); const d = mkdtempSync(join(tmpdir(), "rt65-")); writeFileSync(join(d, "m.mjs"), "export const name = \"M\"; export const check = (o) => ({ name: \"M\", status: \"pass\", evidence: [JSON.stringify(o), JSON.stringify(Object.keys(o).sort())] });"); const [e] = await loadCheckDirectory(pathToFileURL(d + "/"), ".mjs"); const range = { base: "a", candidate: "b" }; const h = (ev) => { const o = JSON.parse(ev[0]); return JSON.stringify(JSON.parse(ev[1]).map((x) => [x, o[x] === undefined ? "(undefined)" : o[x]])); }; const a = h((await e.run({ cwd: "/r", config: "c j.json" }, range, { config: "evil" })).evidence); const b = h((await e.run({ cwd: "/r" }, range, { config: "evil" })).evidence); rmSync(d, { recursive: true, force: true }); const k = (o) => JSON.stringify(Object.keys(o).sort().map((x) => [x, o[x]])); process.exitCode = Number(a !== k({ config: "c j.json", cwd: "/r", base: "a", candidate: "b" }) || b !== k({ cwd: "/r", base: "a", candidate: "b" }))'''
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync } = await import("node:child_process"); const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs"); const { join } = await import("node:path"); const { tmpdir } = await import("node:os"); const { main } = await import("./dist/cli.js"); const { REGISTRY } = await import("./dist/registry.js"); const d = mkdtempSync(join(tmpdir(), "rt65-")); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a]); g("init", "-q"); writeFileSync(join(d, "x.json"), "{\"schema\":\"repo-truth.config/v1\"}"); g("commit", "-q", "--allow-empty", "-m", "a"); g("commit", "-q", "--allow-empty", "-m", "b"); const seen = []; REGISTRY.splice(0, REGISTRY.length, { name: "REC", run: (r) => { seen.push(r); return { name: "REC", status: "pass", evidence: [] }; } }); const io = { cwd: d, stdout: () => {}, stderr: () => {} }; const c1 = await main(["check", "--no-fetch", "--base", "HEAD~1", "--candidate", "HEAD", "--config", "x.json"], io); const c2 = await main(["check", "--no-fetch", "--base", "HEAD~1", "--candidate", "HEAD"], io); rmSync(d, { recursive: true, force: true }); process.exitCode = Number(!(c1 === 0 && c2 === 0 && seen.length === 2 && seen[0].config === "x.json" && !Object.hasOwn(seen[1], "config")))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/registry.ts: the `Repository` interface declares an optional
+      `config`, a string, whose doc comment says it is the path `--config`
+      named, as it was given, and that it is absent when the settings were
+      read from repo-truth.json at the base. `RESERVED_OPTIONS` names
+      `config` beside `cwd`, `base`, `candidate` and `sanctions`. The `run`
+      of every entry `entry()` builds hands the check `config` from the
+      repository it is run with when that repository carries one, and no
+      `config` otherwise, whatever the options it is given hold - the fourth
+      command item above runs both roads through the built registry.
+  - type: behavior
+    statement: >
+      src/cli.ts runs every selected check with a repository that carries
+      `config` set to the value `--config` was given when it was given, and
+      `cwd` alone when it was not - the fifth command item above runs both
+      roads through the built command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/config-handoff.test.ts: a module of a check
+      directory the suite writes, whose check records the options it is
+      handed, run through `loadCheckDirectory` - with a repository carrying
+      `config`, asserting the whole object it is handed; with none,
+      asserting no `config` key; with an option named `config` in the
+      options given, asserting it is not handed - and a module that declares
+      an option named `config`, asserting that its entry's record fails and
+      names the option; and `main` run over a throwaway repository with
+      registry entries of the suite's own that record the repository they
+      are run with, asserting `config` with `--config` given by a relative
+      path, by an absolute path and as `--config=<path>`, and no `config`
+      without it. Fixtures are built under the operating system's
+      temporary directory and removed when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-65.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/registry.ts
+  - src/cli.ts
+  - test/unit/config-handoff.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - src/checks/**
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+  - test/unit/registry.test.ts
+  - test/unit/registry-options.test.ts
+  - test/unit/action.test.ts
+  - test/unit/config.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:config-handoff]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
