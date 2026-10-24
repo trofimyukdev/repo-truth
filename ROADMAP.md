@@ -66,6 +66,8 @@ passes over this README's own figures from the root commit.
   by `--config` - and the checks added since it was written by `--check` (RT-62).
 - The command hands every check the path `--config` names, as an option no configuration file
   can set (RT-65).
+- A range that adds, changes, deletes or renames the file the run's settings were read from fails,
+  unless a commit message of the range sanctions the change (RT-66).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

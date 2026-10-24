@@ -1,0 +1,172 @@
+id: RT-66
+repo: repo-truth
+priority: 25
+milestone: M0
+title: A range that adds, changes, deletes or renames the configuration file the command read fails, unless a commit message sanctions it
+
+outcome: >
+  `repo-truth check` reads its settings from repo-truth.json at the base of
+  the range (src/config.ts `readConfig`, in the directory the command runs
+  in), or from the file `--config` names. So a range that loosens that
+  file - a higher RT-12 `maxBytes`, a wider RT-55 `allowedSuffixes`, an
+  RT-57 pattern removed - is judged by the settings it found, and every
+  later range by the loosened ones, with nothing in any record saying the
+  settings moved; through `--config` in a pull request the file read is
+  the pull request's own copy, so the range is judged by its own change.
+  This task adds a check, RT-66, a module of the check directory
+  (src/checks/config-changes.ts, no edit of src/registry.ts), that fails a
+  range which adds, changes, deletes or renames the file the run's settings
+  were read from, naming the file, unless a commit message of the range
+  sanctions the change as RT-33 and RT-56 sanction theirs.
+
+  Which file: with no `config` option - the command ran with no
+  `--config` - repo-truth.json in the directory the command runs in, by
+  its path from the repository's top directory (the file `readConfig`
+  reads at the base; repo-truth.json itself when the command runs at the
+  root). With `config` - the path `--config` named, handed to every check
+  by RT-65 - that path, read against `cwd` when it is relative, as
+  `readConfig` reads it; it is inside the repository when its directory,
+  symbolic links resolved, is the repository's top directory or below it,
+  and it is then watched by its path from the top directory. A file
+  outside the repository is one no range can change, and the check skips,
+  naming it - but a revision that names no commit is a `fail` on every
+  road, an outside `--config` file included: that road stays the workflow author's choice, as the Action's
+  `config` input says. A limit this task keeps: `readConfig` names
+  repo-truth.json to git relative to the directory the command runs in,
+  so a run from a subdirectory reads that subdirectory's repo-truth.json,
+  not the top directory's, and runs on the defaults when the subdirectory
+  has none. RT-66 watches the same path the run read, the subdirectory's;
+  a change to the top directory's file is then no finding, because it is
+  not the run's settings. Which file a run from a subdirectory should
+  read is not this task's to change.
+
+  What a finding is: the range is read through git from the merge base of
+  `base` and `candidate` to `candidate`, renames detected, never from the
+  working tree. An entry that names the watched path, on either side of a
+  rename, is a finding of the category its status gives: `config-added`
+  (added, or copied onto it), `config-changed` (modified, or its type
+  changed), `config-deleted`, `config-renamed` (renamed away or onto it;
+  the evidence names the other path). Each finding is one evidence line
+  that opens `<file>: <category>`, the file by its path from the top
+  directory - a rename's line naming the other path too, and a
+  sanctioned one ending ` - sanctioned: <reason>`. A finding's id is
+  `<category>:<file>`, sanctioned by a `Sanctioned-Weakening: <id> <reason>`
+  line in a commit message of the range or by the caller's `sanctions`,
+  the form src/checks/script-changes.ts and src/checks/workflow-weakening.ts
+  state in their headers. The check declares no options, so no
+  configuration file can quiet it.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  Written on 2026-10-24 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/config-changes.test.ts
+
+creates_test_files:
+  - test/unit/config-changes.test.ts
+
+not_done_if:
+  - "with no `--config`, a range that adds, changes, deletes or renames repo-truth.json in the directory the command runs in leaves RT-66's record anything but `fail` with an evidence line naming that file by its path from the repository's top directory and the change's category, `config-added`, `config-changed`, `config-deleted` or `config-renamed` (a rename's line naming the other path too); or a range that leaves that file alone is anything but `pass`"
+  - "with `--config <path>` naming a file inside the repository - by a relative path, by an absolute one, or through a symbolic link to a directory of the repository - a range that adds, changes, deletes or renames that file is not `fail` naming it by its path from the top directory; or a range that changes only repo-truth.json is not `pass` then"
+  - "with `--config <path>` naming a file outside the repository the record is not `skip` with an evidence line naming the path, or the command does not exit 0 on that record"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: <category>:<file> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another category or another file, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - a change the other side made after the merge base is a finding, or the working tree is read"
+  - "a revision that names no commit, a git that fails, or a `--config` path whose directory cannot be read yields anything but a `fail` record naming the cause, or the check throws; or the module exports `optionKinds`, so a configuration file can give it an option"
+  - "`repo-truth list` does not name RT-66 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/config-changes.test.ts is not a file the task adds"
+  - "the task changes any file but src/checks/config-changes.ts and test/unit/config-changes.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/config-changes.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-66)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const t = mkdtempSync(join(tmpdir(), "rt66-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); const s = (n) => JSON.stringify({ schema: "repo-truth.config/v1", checks: { "RT-12": { maxBytes: n } } }); writeFileSync(join(d, "repo-truth.json"), s(10)); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); writeFileSync(join(d, "repo-truth.json"), s(99)); g("commit", "-q", "-am", "loosen"); const run = (...more) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-66", "--base", base, "--candidate", "HEAD", "--format", "json", ...more], { cwd: d, encoding: "utf8" }); const r1 = run(); const r2 = run("--config", join(t, "out.json")); writeFileSync(join(t, "out.json"), s(10)); const r3 = run("--config", join(t, "out.json")); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const c = rec(r3); process.exitCode = Number(!(r1.status === 1 && a && a.name === "RT-66" && a.status === "fail" && a.evidence[0].startsWith("repo-truth.json: config-changed") && r2.status === 2 && r3.status === 0 && c && c.status === "skip" && c.evidence[0].includes(join(t, "out.json"))))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/config-changes.ts is a module of the check directory: it
+      exports `name`, which is "RT-66", and `check`, and no `optionKinds`.
+      Its header comment says which file it watches on each road (no
+      `--config`: repo-truth.json in the directory the command runs in;
+      `--config`: that file, when it is inside the repository), that a file
+      outside the repository is a `skip`, the four categories, the id form
+      `<category>:<file>` and the `Sanctioned-Weakening:` line that
+      sanctions a finding. `check` returns a record and never throws: the
+      fourth command item above runs a changed repo-truth.json, a refused
+      `--config` and a `--config` file outside the repository through the
+      built command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/config-changes.test.ts call `check` over throwaway
+      repositories and assert the whole record it returns: a range that
+      leaves repo-truth.json alone; one that adds it, one that changes it,
+      one that deletes it, one that renames it away and one that renames
+      another file onto it; repo-truth.json in a subdirectory the check is
+      run in; a `config` path inside the repository given relative, given
+      absolute and given through a symbolic link to a directory of the
+      repository, and a range that changes only repo-truth.json beside it;
+      a `config` path outside the repository; a finding sanctioned by a
+      commit message line, one by the caller's `sanctions`, and a line that
+      names another category; a range whose other side changed the file
+      after the merge base; and a revision that names no commit. One test
+      runs `main` with `--check RT-66` and `--config` over such a range and
+      asserts the record. Fixtures are built under the operating system's
+      temporary directory and removed when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-66.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/config-changes.ts
+  - test/unit/config-changes.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: [RT-65]
+discovered_from: null
+resources: [repo-truth:config-changes]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
