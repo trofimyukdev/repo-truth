@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -20,6 +20,7 @@ const ENV = {
 };
 
 const ID_LENGTH = 12;
+const FAN_OUT_LENGTH = 2;
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args as string[], { cwd, env: ENV });
@@ -151,6 +152,25 @@ describe("RT-29 autosquash leftovers", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("writes a tilde, the last printable ASCII character, as it is", async () => {
+    const id = await commit(repo, "fixup! a~b");
+    expect((await run()).evidence).toEqual([`${short(id)} fixup! a~b`]);
+  });
+
+  it("reports git's own complaint when a commit of the range cannot be read", async () => {
+    const lost = await commit(repo, "lost");
+    await commit(repo, "tip");
+    const gitDir = await git(repo, ["rev-parse", "--absolute-git-dir"]);
+    await unlink(join(gitDir, "objects", lost.slice(0, FAN_OUT_LENGTH), lost.slice(FAN_OUT_LENGTH)));
+    const record = await run();
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    const line = record.evidence[0] ?? "";
+    expect(line.startsWith("git failed: ")).toBe(true);
+    expect(line.startsWith("git failed: Command failed")).toBe(false);
+    expect(line).toContain("fatal");
   });
 
   it("is the only record `repo-truth check --check RT-29` prints", async () => {
