@@ -181,6 +181,56 @@ describe("checkTrailers", () => {
     expect(record.evidence.join("\n")).toContain("nope-base");
   });
 
+  it("answers a base that names no commit with exactly one line naming it", async () => {
+    await commit(repo, "feat: landing\n\nTask-Id: RT-03");
+    const record = await checkTrailers({ cwd: repo, base: "nope-base", candidate: "HEAD" });
+    expect(record).toEqual({
+      name: "RT-03",
+      status: "fail",
+      evidence: ["revision nope-base does not name a commit"],
+    });
+  });
+
+  it("answers a candidate that names no commit with exactly one line naming it", async () => {
+    await commit(repo, "feat: landing\n\nTask-Id: RT-03");
+    const record = await run("no-such-rev");
+    expect(record).toEqual({
+      name: "RT-03",
+      status: "fail",
+      evidence: ["revision no-such-rev does not name a commit"],
+    });
+  });
+
+  it("answers a base that names a tree, not a commit, as no commit", async () => {
+    const record = await checkTrailers({ cwd: repo, base: "HEAD^{tree}", candidate: "HEAD" });
+    expect(record).toEqual({
+      name: "RT-03",
+      status: "fail",
+      evidence: ["revision HEAD^{tree} does not name a commit"],
+    });
+  });
+
+  it("answers a base before a candidate when both name no commit", async () => {
+    const record = await checkTrailers({ cwd: repo, base: "nope-base", candidate: "no-such-rev" });
+    expect(record.evidence).toEqual(["revision nope-base does not name a commit"]);
+  });
+
+  it("reports git's own complaint when a commit of the range was removed", async () => {
+    const middle = await commit(repo, "wip");
+    await commit(repo, "feat: landing\n\nTask-Id: RT-03");
+    await rm(join(repo, ".git", "objects", middle.slice(0, 2), middle.slice(2)), { force: true });
+    const record = await run();
+    expect(record.name).toBe("RT-03");
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toHaveLength(1);
+    const line = record.evidence[0] ?? "";
+    expect(line.startsWith(`could not check trailers of ${base}..HEAD: `)).toBe(true);
+    const complaint = line.slice(`could not check trailers of ${base}..HEAD: `.length);
+    expect(complaint.length).toBeGreaterThan(0);
+    expect(complaint).not.toMatch(/^Command failed/);
+    expect(complaint).toMatch(/fatal|error/i);
+  });
+
   it("fails closed outside a repository", async () => {
     const record = await checkTrailers({ cwd: tmpdir(), base: "a", candidate: "b" });
     expect(record.status).toBe("fail");
