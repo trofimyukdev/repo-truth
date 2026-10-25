@@ -116,4 +116,82 @@ describe("loadCheckDirectory", () => {
     expect(second.evidence[0]).toContain("DUP");
     expect((await entries[2]!.run(repo, range)).evidence[0]).toContain("RT-01");
   });
+
+  const NOT_PLAIN = "its optionKinds is not a plain object";
+
+  async function onlyEntry(file: string, source: string) {
+    await writeFile(join(dir, file), source);
+    const entries = await loadCheckDirectory(url(), ".ts");
+    expect(entries).toHaveLength(1);
+    return entries[0]!;
+  }
+
+  it("turns a module whose optionKinds is an instance of a class into a failing entry", async () => {
+    const source = moduleSource("KLASS") +
+      'class Kinds { maxBytes = "integer"; }\nexport const optionKinds = new Kinds();\n';
+    const only = await onlyEntry("klass.ts", source);
+    expect(only.name).toBe("checks/klass");
+    expect(await only.run(repo, range)).toEqual({
+      name: "checks/klass", status: "fail", evidence: ["klass.ts: " + NOT_PLAIN],
+    });
+  });
+
+  it("turns a module whose optionKinds is a Map into a failing entry", async () => {
+    const source = moduleSource("MAPPED") + 'export const optionKinds = new Map([["maxBytes", "integer"]]);\n';
+    const only = await onlyEntry("mapped.ts", source);
+    expect(only.name).toBe("checks/mapped");
+    expect(await only.run(repo, range)).toEqual({
+      name: "checks/mapped", status: "fail", evidence: ["mapped.ts: " + NOT_PLAIN],
+    });
+  });
+
+  it("turns a module whose optionKinds is an array, null or a string into a failing entry", async () => {
+    await writeFile(join(dir, "a-array.ts"), moduleSource("AR") + 'export const optionKinds = ["integer"];\n');
+    await writeFile(join(dir, "b-null.ts"), moduleSource("NU") + "export const optionKinds = null;\n");
+    await writeFile(join(dir, "c-text.ts"), moduleSource("TX") + 'export const optionKinds = "integer";\n');
+    const entries = await loadCheckDirectory(url(), ".ts");
+    expect(entries.map((e) => e.name)).toEqual(["checks/a-array", "checks/b-null", "checks/c-text"]);
+    for (const e of entries) {
+      const record = await e.run(repo, range);
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([e.name.slice("checks/".length) + ".ts: " + NOT_PLAIN]);
+    }
+  });
+
+  it("registers a module whose optionKinds has a null prototype with its declaration", async () => {
+    const source = 'export const name = "NULLPROTO";\n' +
+      'export const check = (o) => ({ name: "NULLPROTO", status: "pass", evidence: [JSON.stringify(o.maxBytes)] });\n' +
+      'export const optionKinds = Object.assign(Object.create(null), { maxBytes: "integer" });\n';
+    const only = await onlyEntry("nullproto.ts", source);
+    expect(only.name).toBe("NULLPROTO");
+    expect({ ...only.options }).toEqual({ maxBytes: "integer" });
+    const record = await only.run(repo, range, { maxBytes: 7, other: 1 });
+    expect(record).toEqual({ name: "NULLPROTO", status: "pass", evidence: ["7"] });
+  });
+
+  it("registers a module whose optionKinds is a plain object with its declaration", async () => {
+    const source = moduleSource("PLAIN") + 'export const optionKinds = { maxBytes: "integer" };\n';
+    const only = await onlyEntry("plain.ts", source);
+    expect(only.name).toBe("PLAIN");
+    expect({ ...only.options }).toEqual({ maxBytes: "integer" });
+  });
+
+  it("keeps the name of an entry that could not be registered from a later module", async () => {
+    await writeFile(join(dir, "a.ts"), 'throw new Error("kaput");\n');
+    await writeFile(join(dir, "b.ts"), moduleSource("checks/a"));
+    await writeFile(join(dir, "c.ts"), moduleSource("checks/b"));
+    await writeFile(join(dir, "d.ts"), moduleSource("checks/b"));
+    const entries = await loadCheckDirectory(url(), ".ts");
+    expect(entries.map((e) => e.name)).toEqual(["checks/a", "checks/b", "checks/c", "checks/d"]);
+    expect(await entries[1]!.run(repo, range)).toEqual({
+      name: "checks/b", status: "fail", evidence: ["b.ts: its name checks/a is already registered"],
+    });
+    expect(await entries[2]!.run(repo, range)).toEqual({
+      name: "checks/c", status: "fail", evidence: ["c.ts: its name checks/b is already registered"],
+    });
+    expect(await entries[3]!.run(repo, range)).toEqual({
+      name: "checks/d", status: "fail", evidence: ["d.ts: its name checks/b is already registered"],
+    });
+    expect(new Set(entries.map((e) => e.name)).size).toBe(entries.length);
+  });
 });
