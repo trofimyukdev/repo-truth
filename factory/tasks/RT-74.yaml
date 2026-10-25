@@ -1,0 +1,119 @@
+id: RT-74
+repo: repo-truth
+priority: 21
+milestone: M0
+title: The end-to-end suite runs the configuration-change check (RT-66) through the built command
+
+outcome: >
+  RT-66 fails a range that adds, changes, deletes or renames the file the
+  run's settings were read from - repo-truth.json in the directory the
+  command runs in, or the file `--config` names when it is inside the
+  repository - unless a commit message of the range sanctions it, and it
+  skips a `--config` file outside the repository. Its unit tests call the
+  module; the end-to-end suite (RT-17), the full_suite rung and the
+  post-merge smoke, never runs it. So a build whose RT-66 passes every
+  range, watches repo-truth.json while `--config` names another file,
+  judges a file outside the repository instead of skipping it, ignores a
+  sanction, or names a deleted, added or renamed file as merely changed
+  would leave every rung green. This task adds the cases that catch each of
+  those, in test/e2e/cli.e2e.mjs alone, run against the built command as a
+  child process over throwaway repositories, as the suite's other cases
+  are. A case that names RT-66 first asserts that the built registry holds
+  it, so a check renamed or dropped fails the suite instead of leaving a
+  case that tests nothing.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own and use the ones the file already declares.
+
+  The change holds tests only: the factory's mutation probe has no source
+  line to plant on, the stage that scores the tests records the change as
+  one of test paths alone, and the holdout item below answers for it.
+
+  Written on 2026-10-25 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. No source
+  file changes.
+
+measure:
+  - npm run build && node --test test/e2e/cli.e2e.mjs
+
+not_done_if:
+  - "the suite stays green on a build whose RT-66 passes a range that changes repo-truth.json, or on one whose RT-66 names a range that adds, deletes or renames the file by any category but `config-added`, `config-deleted` or `config-renamed`"
+  - "the suite stays green on a build whose RT-66 watches repo-truth.json while `--config` names another file inside the repository, or judges a `--config` file outside the repository instead of skipping it"
+  - "the suite stays green on a build whose RT-66 fails a change that a `Sanctioned-Weakening:` line of the range sanctions; or a case that names RT-66 passes when the built registry does not hold it"
+  - "the suite fails on the build as it stands, or leaves files in the temporary directory after it ends"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, marked `only` or `todo`, or made to ask less - a line holding an `assert` it holds removed or rewritten among them; or the suite declares no new test"
+  - "the task changes any file but test/e2e/cli.e2e.mjs - a source file, package.json, a dependency"
+
+acceptance:
+  - type: command
+    command: npm run build && node --test test/e2e/cli.e2e.mjs
+    required: true
+  - type: behavior
+    statement: >
+      test/e2e/cli.e2e.mjs holds new cases, each running the built command
+      as a child process over a throwaway repository under the operating
+      system's temporary directory with `--check RT-66` and `--format
+      json`, each first asserting that the built registry holds RT-66, and
+      each asserting the exit code and the RT-66 record's status and
+      evidence lines exactly.
+  - type: behavior
+    statement: >
+      The cases cover: a range that changes repo-truth.json at the base
+      fails, exit 1, with the one evidence line `repo-truth.json:
+      config-changed`; a range that adds it, one that deletes it and one
+      that renames it fail with `config-added`, `config-deleted` and
+      `config-renamed (other path: <the new path>)`; with `--config` naming
+      a file inside the repository, a range that changes that file fails
+      naming it, while a range that changes repo-truth.json alone passes;
+      with `--config` naming a file outside the repository the record is a
+      `skip`, exit 0, its evidence line the path as given followed by `:
+      outside the repository, no range can change it`; a change sanctioned
+      by a `Sanctioned-Weakening: config-changed:repo-truth.json <reason>`
+      line of a commit message of the range passes, exit 0, its evidence
+      line ending ` - sanctioned: <reason>`; and a range that leaves the
+      file alone passes with `repo-truth.json: not added, changed, deleted
+      or renamed`.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-74.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/e2e/cli.e2e.mjs
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - test/unit/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - .gitignore
+  - action.yml
+  - repo-truth.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:e2e-config-changes]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
