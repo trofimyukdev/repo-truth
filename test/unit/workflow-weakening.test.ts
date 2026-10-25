@@ -225,4 +225,113 @@ describe("RT-56 weakened workflows", () => {
     const records = (Array.isArray(parsed) ? parsed : (parsed as { records: unknown[] }).records) as { name: string }[];
     expect(records.map((r) => r.name)).toEqual(["RT-56"]);
   });
+
+  describe("suite strength", () => {
+    const WEAK = "continue-on-error: true";
+    const crlf = (text: string): string => text.replace(/\n/g, "\r\n");
+
+    it("opens the evidence of an unresolved revision with a cause that is not empty", async () => {
+      await commit(repo, { "keep.txt": "keep\n" }, "base");
+      const prefix = 'revision "nope" does not name a commit: ';
+      for (const options of [
+        { base: "nope", candidate: "HEAD" },
+        { base: "HEAD", candidate: "nope" },
+      ]) {
+        const record = await check({ cwd: repo, ...options });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toHaveLength(1);
+        expect(record.evidence[0]?.startsWith(prefix)).toBe(true);
+        expect(record.evidence[0]?.length).toBeGreaterThan(prefix.length);
+      }
+    });
+
+    it("refuses an empty revision and one beginning with a dash before git is asked", async () => {
+      await commit(repo, { "keep.txt": "keep\n" }, "base");
+      expect(await check({ cwd: repo, base: "", candidate: "HEAD" })).toEqual({
+        name,
+        status: "fail",
+        evidence: ['revision "" does not name a commit'],
+      });
+      expect((await check({ cwd: repo, base: "HEAD", candidate: "" })).evidence).toEqual(['revision "" does not name a commit']);
+      expect((await check({ cwd: repo, base: "-x", candidate: "HEAD" })).evidence).toEqual(['revision "-x" does not name a commit']);
+      expect((await check({ cwd: repo, base: "HEAD", candidate: "-x" })).evidence).toEqual(['revision "-x" does not name a commit']);
+    });
+
+    it("reads a revision one character long like any other", async () => {
+      await commit(repo, { "keep.txt": "keep\n" }, "base");
+      await git(repo, ["branch", "b"]);
+      const record = await check({ cwd: repo, base: "b", candidate: "b" });
+      expect(record).toEqual({ name, status: "pass", evidence: ["no workflow weakened"] });
+      const missing = await check({ cwd: repo, base: "c", candidate: "b" });
+      expect(missing.evidence[0]?.startsWith('revision "c" does not name a commit: ')).toBe(true);
+    });
+
+    it("escapes exactly the characters outside printable ASCII", async () => {
+      const record = await run({ [W]: body() }, { [W]: body("      - run: a\u001f~ \u007f|| true") });
+      expect(record.evidence).toEqual([`${W}: or-true "- run: a\\u{001f}~ \\u{007f}|| true"`]);
+    });
+
+    it("reads a line ending in a carriage return as the line without it", async () => {
+      const record = await run({ [W]: crlf(body()) }, { [W]: crlf(body(WEAK)) });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`${W}: continue-on-error "${WEAK}"`]);
+    });
+
+    it("counts a line with a carriage return and the same line without one as one line", async () => {
+      await commit(repo, { [W]: crlf(body(WEAK)) }, "base");
+      const base = await git(repo, ["rev-parse", "HEAD"]);
+      await commit(repo, { [W]: body(WEAK) }, "lf");
+      expect((await check({ cwd: repo, base, candidate: "HEAD" })).evidence).toEqual(["no workflow weakened"]);
+    });
+
+    it("compares a renamed workflow with its source and passes one that keeps its weakening line", async () => {
+      const renamed = ".github/workflows/build.yaml";
+      const record = await run({ [W]: body(`    ${WEAK}`) }, { [W]: null, [renamed]: body(`    ${WEAK}`) });
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual(["no workflow weakened"]);
+    });
+
+    it("compares a file moved into the directory from outside it with nothing", async () => {
+      const record = await run({ "ci.yml": body(`    ${WEAK}`) }, { "ci.yml": null, [W]: body(`    ${WEAK}`) });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`${W}: continue-on-error "${WEAK}"`]);
+    });
+
+    it("writes a workflow whose name holds a tilde as it is", async () => {
+      const file = ".github/workflows/a~b.yml";
+      const record = await run({}, { [file]: body(WEAK) });
+      expect(record.evidence).toEqual([`${file}: continue-on-error "${WEAK}"`]);
+    });
+
+    it("lets a caller's reason one character long sanction its finding", async () => {
+      const record = await run({ [W]: body() }, { [W]: body(WEAK) }, { sanctions: { [`continue-on-error:${W}`]: "x" } });
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual([`${W}: continue-on-error "${WEAK}" - sanctioned: x`]);
+    });
+
+    it("lets a caller's reason of white space alone sanction nothing", async () => {
+      const record = await run({ [W]: body() }, { [W]: body(WEAK) }, { sanctions: { [`continue-on-error:${W}`]: " \t " } });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`${W}: continue-on-error "${WEAK}"`]);
+    });
+
+    it("lets a commit message line with a reason one character long sanction its finding", async () => {
+      const id = `continue-on-error:${W}`;
+      const record = await run({ [W]: body() }, { [W]: body(WEAK) }, { message: `x\n\n${SANCTION_KEY}: ${id} x` });
+      expect(record.status).toBe("pass");
+      expect(record.evidence[0]?.endsWith(" - sanctioned: x")).toBe(true);
+    });
+
+    it("is not sanctioned by a line that names another workflow, even one with an id as long", async () => {
+      const other = ".github/workflows/cj.yml";
+      const start = await commit(repo, { "start.txt": "start\n" }, "start");
+      const lines = [`continue-on-error:${other} reason`, `continue-on-error:${W}x reason`, `continue-on-error:${W}`, `if-false:${W} reason`];
+      for (const line of lines) {
+        const record = await run({ [W]: body() }, { [W]: body(WEAK) }, { message: `x\n\n${SANCTION_KEY}: ${line}` });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toEqual([`${W}: continue-on-error "${WEAK}"`]);
+        await git(repo, ["reset", "--quiet", "--hard", start]);
+      }
+    });
+  });
 });
