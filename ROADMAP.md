@@ -68,6 +68,7 @@ passes over this README's own figures from the root commit.
   can set (RT-65).
 - A range that adds, changes, deletes or renames the file the run's settings were read from fails,
   unless a commit message of the range sanctions the change (RT-66).
+- A configuration file that gives one name twice in an object is refused, each repeat named (RT-75).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

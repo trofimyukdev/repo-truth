@@ -1,0 +1,158 @@
+id: RT-75
+repo: repo-truth
+priority: 22
+milestone: M0
+title: A configuration document that gives one name twice in an object is refused, each repeat named by its path
+
+outcome: >
+  The command reads its settings with `parseConfig` of src/config.ts, which
+  parses the document with `JSON.parse`. `JSON.parse` keeps the last of two
+  members with the same name in one object and says nothing, so a
+  repo-truth.json that gives `"RT-12"` a small `maxBytes` and, further
+  down, gives `"RT-12"` again with a large one is run with the second
+  while a person reading the file sees the first. A settings file is the
+  one place a gate must not be read two ways. This task makes
+  `parseConfig` refuse such a document: when the text is valid JSON, its
+  top is an object, and an object in it gives a member
+  name that the same object gave before - names compared as JSON reads
+  them, after their escapes are decoded - each such repeat is one issue
+  `<path>: given more than once`, where the path is the member names, each
+  as JSON reads it, from the top of the document joined by `.`, an
+  element of an array named by
+  its index in brackets (`schema`, `checks.RT-12`,
+  `checks.RT-12.maxBytes`, `checks.RT-18.registries[1].x`). These issues
+  come first, in the order the repeats stand in the text, and the issues
+  `parseConfig` already finds follow them, worded as they are today. A
+  document that is not valid JSON, or whose top is not an object, is
+  refused as it is today, with the one issue that says so, whatever it
+  holds; a document with no repeated name is read exactly as it is
+  today. Both roads of `readConfig` - repo-truth.json at the base,
+  and the file `--config` names - carry the refusal with the source they
+  already name, so the command refuses such a file with exit 2, its
+  message on stderr and no usage text, as it refuses any configuration
+  issue. Nothing is added to package.json: the scan is code of the module.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces holds a construct
+  its mutation catalogue always mutates, as the not_done_if below says.
+  Each mutant of those lines is measured by running every test that
+  reaches src/config.ts, and the measurement has a few passes to finish;
+  a mutant that keeps a loop from ending costs the longest wait a run is
+  allowed. So the scan walks the document as a list of its tokens, each
+  read once, and holds no loop whose end depends on a step the loop
+  itself takes.
+
+  Written on 2026-10-25 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/config-duplicates.test.ts
+
+creates_test_files:
+  - test/unit/config-duplicates.test.ts
+
+not_done_if:
+  - "a valid JSON document in which an object gives a member name twice - at the top, under `checks`, among a check's options, or inside an object that is an element of an array - is read by `parseConfig` instead of refused with a `ConfigError` holding the issue `<path>: given more than once` for that repeat"
+  - "a path is not the member names from the top joined by `.` with an array element named by its index in brackets, two names that are equal once their JSON escapes are decoded are not taken for the same name, equal names in different objects or text inside a string value are taken for a repeat, or a name given three times does not yield exactly two such issues"
+  - "the repeat issues do not come first, in the order the repeats stand in the text, followed by the issues the merge base finds for the same document worded as the merge base words them; or a document with no repeated name, one that is not valid JSON, or one whose top is not an object whatever it holds, is read or refused otherwise than at the merge base"
+  - "the built command, over repo-truth.json at the base or a `--config` file holding a repeated name, does not exit 2 with the refusal on stderr, opening with the source the merge base names, and no usage text"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/config-duplicates.test.ts is not a file the task adds; or a dependency is added"
+  - "no line of code the task adds or replaces in src/config.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but src/config.ts and test/unit/config-duplicates.test.ts, or does not change src/config.ts; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/config-duplicates.test.ts
+    required: true
+  - type: command
+    command: npx vitest run test/unit/config.test.ts test/unit/cli-config.test.ts test/unit/cli.test.ts test/unit/registry-options.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { parseConfig, ConfigError } = await import("./dist/config.js"); const k = { "RT-12": { maxBytes: "integer" }, "RT-18": { registries: "strings" } }; const s = "\"schema\":\"repo-truth.config/v1\""; const iss = (t) => { try { parseConfig(t, k); return null; } catch (e) { return e instanceof ConfigError ? e.issues : ["not a ConfigError"]; } }; const a = iss("{" + s + ",\"checks\":{\"RT-12\":{\"maxBytes\":1,\"max\\u0042ytes\":2,\"maxBytes\":3},\"RT-99\":{}}}"); const b = iss("{" + s + ",\"checks\":{\"RT-18\":{\"registries\":[\"a\",{\"x\":1,\"x\":2}]}}}"); const c = iss("{" + s + ",\"checks\":{\"RT-12\":{\"maxBytes\":1},\"RT-18\":{\"registries\":[\"\\\"maxBytes\\\":2\"]}}}"); const w = (x) => JSON.stringify(x); process.exitCode = Number(w(a) !== w(["checks.RT-12.maxBytes: given more than once", "checks.RT-12.maxBytes: given more than once", "checks.RT-99: unknown check"]) || w(b) !== w(["checks.RT-18.registries[1].x: given more than once", "checks.RT-18.registries: expected an array of strings, found [\"a\",{\"x\":2}]"]) || c !== null)'''
+    required: true
+  - type: behavior
+    statement: >
+      src/config.ts: `parseConfig` refuses a valid JSON document whose top
+      is an object and in which an object gives a member name twice with
+      one issue `<path>: given more than once` per repeat, in text order,
+      ahead of every other issue it finds; a text `JSON.parse` cannot read
+      gets the one `the document: not valid JSON (...)` issue and no repeat
+      issue, and a document with no repeat gets no repeat issue - the
+      fourth command item above runs repeats among a check's options, an
+      escaped repeat, a repeat inside an array's object and a quoted
+      name-like text through the built module. Its comment says that
+      `JSON.parse` keeps the last of two equal names, which is why the
+      repeats are found by the module itself.
+  - type: behavior
+    statement: >
+      Tests in test/unit/config-duplicates.test.ts call `parseConfig` with
+      option kinds of the suite's own, asserting the whole list of issues
+      for a repeated top-level member, a repeated check, a repeated option,
+      a name given three times, a repeat written with an escape, a repeat
+      inside an object that is an element of an array, and a repeat beside
+      another issue; asserting that equal names in different objects and a
+      name-like text inside a string value are read; and they call
+      `readConfig` over a throwaway repository holding a repo-truth.json
+      with a repeated name at the base and over a `--config` file holding
+      one, asserting each refusal's message with its source. Fixtures are
+      built under the operating system's temporary directory and removed
+      when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-75.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/config.ts
+  - test/unit/config-duplicates.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/cli.ts
+  - src/registry.ts
+  - src/action.ts
+  - src/index.ts
+  - src/checks/**
+  - test/unit/config.test.ts
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+  - test/unit/registry-options.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:config-duplicates]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
