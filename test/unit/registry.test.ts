@@ -118,6 +118,8 @@ describe("loadCheckDirectory", () => {
   });
 
   const NOT_PLAIN = "its optionKinds is not a plain object";
+  const BYTES_GIVEN = 7;
+  const OTHER_GIVEN = 1;
 
   async function onlyEntry(file: string, source: string) {
     await writeFile(join(dir, file), source);
@@ -165,8 +167,8 @@ describe("loadCheckDirectory", () => {
     const only = await onlyEntry("nullproto.ts", source);
     expect(only.name).toBe("NULLPROTO");
     expect({ ...only.options }).toEqual({ maxBytes: "integer" });
-    const record = await only.run(repo, range, { maxBytes: 7, other: 1 });
-    expect(record).toEqual({ name: "NULLPROTO", status: "pass", evidence: ["7"] });
+    const record = await only.run(repo, range, { maxBytes: BYTES_GIVEN, other: OTHER_GIVEN });
+    expect(record).toEqual({ name: "NULLPROTO", status: "pass", evidence: [String(BYTES_GIVEN)] });
   });
 
   it("registers a module whose optionKinds is a plain object with its declaration", async () => {
