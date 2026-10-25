@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -23,6 +23,7 @@ const ENV = {
 const PROBE = 8000;
 const SMALL = 64;
 const LARGE = 9000;
+const EXECUTABLE = 0o755;
 
 type Content = string | Buffer | null;
 
@@ -208,5 +209,142 @@ describe("RT-55 binary files", () => {
     const parsed = JSON.parse(stdout) as unknown;
     const records = (Array.isArray(parsed) ? parsed : (parsed as { records: unknown[] }).records) as { name: string }[];
     expect(records.map((r) => r.name)).toEqual(["RT-55"]);
+  });
+
+  describe("revisions", () => {
+    it("names git's own complaint for a revision git does not resolve", async () => {
+      const head = await commit(repo, { "a.txt": text() }, "base");
+      const base = await check({ cwd: repo, base: "no-such-branch", candidate: head });
+      expect(base.status).toBe("fail");
+      const prefix = 'revision "no-such-branch" does not name a commit: ';
+      expect(base.evidence).toHaveLength(1);
+      expect(base.evidence[0]?.startsWith(prefix)).toBe(true);
+      expect(base.evidence[0]?.length).toBeGreaterThan(prefix.length);
+      const candidate = await check({ cwd: repo, base: head, candidate: "gone-branch" });
+      expect(candidate.status).toBe("fail");
+      const other = 'revision "gone-branch" does not name a commit: ';
+      expect(candidate.evidence[0]?.startsWith(other)).toBe(true);
+      expect(candidate.evidence[0]?.length).toBeGreaterThan(other.length);
+    });
+
+    it("refuses an empty revision and one that begins with a dash before git is asked", async () => {
+      const head = await commit(repo, { "a.txt": text() }, "base");
+      const empty = ['revision "" does not name a commit'];
+      const dash = ['revision "-x" does not name a commit'];
+      expect((await check({ cwd: repo, base: "", candidate: head })).evidence).toEqual(empty);
+      expect((await check({ cwd: repo, base: head, candidate: "" })).evidence).toEqual(empty);
+      expect((await check({ cwd: repo, base: "-x", candidate: head })).evidence).toEqual(dash);
+      expect((await check({ cwd: repo, base: head, candidate: "-x" })).evidence).toEqual(dash);
+      expect((await check({ cwd: repo, base: "", candidate: head })).status).toBe("fail");
+    });
+
+    it("reads a revision one character long like any other", async () => {
+      const base = await commit(repo, { "a.txt": text() }, "base");
+      await git(repo, ["branch", "b", base]);
+      await commit(repo, { "a.bin": binary() }, "change");
+      const record = await check({ cwd: repo, base: "b", candidate: "main" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual(["a.bin: binary-added, 64 bytes"]);
+      const same = await check({ cwd: repo, base: "main", candidate: "b" });
+      expect(same.evidence[0]?.startsWith("revision")).toBe(false);
+    });
+  });
+
+  describe("content and entries", () => {
+    it("reads a file whose only NUL byte is its first byte as binary", async () => {
+      const record = await run({}, { "a.bin": bytes(SMALL, 0) });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual(["a.bin: binary-added, 64 bytes"]);
+    });
+
+    it("reports a binary file added with the executable mode", async () => {
+      const base = await commit(repo, { "keep.txt": "keep\n" }, "base");
+      await writeFile(join(repo, "run.bin"), binary());
+      await chmod(join(repo, "run.bin"), EXECUTABLE);
+      const candidate = await commit(repo, {}, "change");
+      expect(await git(repo, ["ls-tree", candidate, "run.bin"])).toMatch(/^100755 /);
+      const record = await check({ cwd: repo, base, candidate });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual(["run.bin: binary-added, 64 bytes"]);
+    });
+
+    it("takes a submodule entry for no file", async () => {
+      const base = await commit(repo, { "keep.txt": "keep\n" }, "base");
+      await git(repo, ["update-index", "--add", "--cacheinfo", `160000,${base},sub`]);
+      await git(repo, ["commit", "--quiet", "-m", "submodule"]);
+      const candidate = await git(repo, ["rev-parse", "HEAD"]);
+      expect(await git(repo, ["ls-tree", candidate, "sub"])).toMatch(/^160000 /);
+      const record = await check({ cwd: repo, base, candidate });
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual(["no binary file added or changed"]);
+    });
+
+    it("writes a path that holds a tilde as it is", async () => {
+      const record = await run({}, { "a~b.bin": binary() });
+      expect(record.evidence).toEqual(["a~b.bin: binary-added, 64 bytes"]);
+    });
+
+    it("writes a space as it is and escapes the characters either side of the printable range", async () => {
+      const record = await run({}, { "a b.bin": binary(), "c\x1fd.bin": binary(), "e\x7ff.bin": binary() });
+      expect(record.evidence).toEqual([
+        "a b.bin: binary-added, 64 bytes",
+        "c\\u{001f}d.bin: binary-added, 64 bytes",
+        "e\\u{007f}f.bin: binary-added, 64 bytes",
+      ]);
+    });
+
+    it("lists findings in the order of their paths", async () => {
+      const added = await run({}, { "b.bin": binary(), "a.bin": binary() });
+      expect(added.findings.map((f) => f.id)).toEqual(["binary-added:a.bin", "binary-added:b.bin"]);
+      expect(added.evidence.map((e) => e.slice(0, 5))).toEqual(["a.bin", "b.bin"]);
+    });
+
+    it("lists a changed file before an added one when its path comes first", async () => {
+      const record = await run({ "a.bin": binary(0x61) }, { "a.bin": binary(0x62), "b.bin": binary() });
+      expect(record.findings.map((f) => f.id)).toEqual(["binary-changed:a.bin", "binary-added:b.bin"]);
+      expect(record.evidence.map((e) => e.slice(0, 5))).toEqual(["a.bin", "b.bin"]);
+    });
+  });
+
+  describe("options and sanctions", () => {
+    it("lets nothing through on an empty allowed suffix", async () => {
+      const record = await run({}, { "a.bin": binary() }, { allowedSuffixes: [""] });
+      expect(record.status).toBe("fail");
+      expect(record.findings.map((f) => f.id)).toEqual(["binary-added:a.bin"]);
+    });
+
+    it("lets through a path that ends with a suffix one character long", async () => {
+      const record = await run({}, { "a.bin": binary() }, { allowedSuffixes: ["n"] });
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual(["no binary file added or changed"]);
+    });
+
+    it("sanctions a finding with a caller's reason one character long", async () => {
+      const record = await run({}, { "a.bin": binary() }, { sanctions: { "binary-added:a.bin": "x" } });
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual(["a.bin: binary-added, 64 bytes - sanctioned: x"]);
+      expect(record.findings[0]?.sanction).toBe("x");
+    });
+
+    it("sanctions a finding with a commit line's reason one character long", async () => {
+      const record = await run({}, { "a.bin": binary() }, { message: `add\n\n${SANCTION_KEY}: binary-added:a.bin x` });
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual(["a.bin: binary-added, 64 bytes - sanctioned: x"]);
+    });
+
+    it("sanctions nothing on a reason of white space alone", async () => {
+      const given = await run({}, { "a.bin": binary() }, { sanctions: { "binary-added:a.bin": "  \t " } });
+      expect(given.status).toBe("fail");
+      expect(given.findings[0]?.sanction).toBeNull();
+      const line = await run({}, { "b.bin": binary() }, { message: `add\n\n${SANCTION_KEY}: binary-added:b.bin   ` });
+      expect(line.status).toBe("fail");
+    });
+
+    it("is not sanctioned by a line that names another file", async () => {
+      const record = await run({}, { "a.bin": binary() }, { message: `add\n\n${SANCTION_KEY}: binary-added:b.bin because` });
+      expect(record.status).toBe("fail");
+      expect(record.findings[0]?.sanction).toBeNull();
+      expect(record.evidence).toEqual(["a.bin: binary-added, 64 bytes"]);
+    });
   });
 });
