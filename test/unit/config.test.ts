@@ -324,3 +324,93 @@ describe("readConfig from a named file", () => {
     expect(error.issues).toHaveLength(1);
   });
 });
+
+const GIT_EXIT = 128;
+const FIRST_PRINTABLE = 0x20;
+const LAST_PRINTABLE = 0x7e;
+const SYMLINK_MODE = "120000";
+
+describe("parseConfig, named refusals", () => {
+  it("names what a document that is not an object is", () => {
+    expect(issuesOf("null")).toEqual(["the document: expected a JSON object, found null"]);
+    expect(issuesOf("[]")).toEqual(["the document: expected a JSON object, found an array"]);
+    expect(issuesOf("3")).toEqual(["the document: expected a JSON object, found a number"]);
+    expect(issuesOf('"s"')).toEqual(["the document: expected a JSON object, found a string"]);
+  });
+
+  it("opens the message of one issue in the singular", () => {
+    try {
+      parseConfig(withSchema({ checks: { gamma: {} } }), kinds);
+    } catch (error) {
+      const message = (error as ConfigError).message;
+      expect(message.split("\n")[0]).toBe("1 configuration issue");
+      expect(message).toBe("1 configuration issue\n  checks.gamma: unknown check");
+      return;
+    }
+    throw new Error("expected a refusal");
+  });
+
+  it("writes every printable ASCII character as it is and escapes the ones beside them", () => {
+    for (let code = FIRST_PRINTABLE; code <= LAST_PRINTABLE; code += 1) {
+      const char = String.fromCharCode(code);
+      expect(issuesOf(withSchema({ checks: { [`a${char}b`]: {} } })), `code ${code}`).toEqual([`checks.a${char}b: unknown check`]);
+    }
+    expect(issuesOf(withSchema({ checks: { "a~b": {} } }))).toEqual(["checks.a~b: unknown check"]);
+    expect(issuesOf(withSchema({ checks: { "a\u001fb": {} } }))).toEqual(["checks.a\\u{001f}b: unknown check"]);
+    expect(issuesOf(withSchema({ checks: { "a\u007fb": {} } }))).toEqual(["checks.a\\u{007f}b: unknown check"]);
+  });
+});
+
+describe("readConfig, git refusals", () => {
+  function emptyDirectory(): string {
+    const root = mkdtempSync(join(tmpdir(), "repo-truth-config-"));
+    roots.push(root);
+    return root;
+  }
+
+  it("carries the complaint of git when the directory is no repository", async () => {
+    const root = emptyDirectory();
+    const error = await refusal(readConfig({ cwd: root, base: "HEAD" }, kinds));
+    expect(error.issues).toHaveLength(1);
+    expect(error.issues[0]?.startsWith(`git rev-parse failed (exit ${GIT_EXIT}): `)).toBe(true);
+    expect(error.issues[0]).toMatch(/not a git repository/);
+  });
+
+  it("says git could not be run when the directory does not exist", async () => {
+    const root = emptyDirectory();
+    const error = await refusal(readConfig({ cwd: join(root, "missing"), base: "HEAD" }, kinds));
+    expect(error.issues).toHaveLength(1);
+    expect(error.issues[0]?.startsWith("git could not be run: ")).toBe(true);
+  });
+
+  it("refuses a base whose tree git cannot read", async () => {
+    const root = repo();
+    writeFileSync(join(root, CONFIG_FILE), good);
+    const base = commit(root, "base");
+    const tree = git(root, "rev-parse", `${base}^{tree}`);
+    rmSync(join(root, ".git", "objects", tree.slice(0, 2), tree.slice(2)), { force: true });
+    const error = await refusal(readConfig({ cwd: root, base }, kinds));
+    expect(error.issues).toHaveLength(1);
+    expect(error.issues[0]?.startsWith(`git ls-tree failed (exit ${GIT_EXIT}): `)).toBe(true);
+  });
+
+  it("refuses a base whose file git cannot read", async () => {
+    const root = repo();
+    writeFileSync(join(root, CONFIG_FILE), good);
+    const base = commit(root, "base");
+    const blob = git(root, "rev-parse", `${base}:${CONFIG_FILE}`);
+    rmSync(join(root, ".git", "objects", blob.slice(0, 2), blob.slice(2)), { force: true });
+    const error = await refusal(readConfig({ cwd: root, base }, kinds));
+    expect(error.issues).toHaveLength(1);
+    expect(error.issues[0]?.startsWith(`git cat-file failed (exit ${GIT_EXIT}): `)).toBe(true);
+  });
+
+  it("names a symbolic link exactly", async () => {
+    const root = repo();
+    writeFileSync(join(root, "real.json"), good);
+    symlinkSync("real.json", join(root, CONFIG_FILE));
+    const base = commit(root, "base");
+    const error = await refusal(readConfig({ cwd: root, base }, kinds));
+    expect(error.issues).toEqual([`${CONFIG_FILE}: expected a regular file, found a blob (mode ${SYMLINK_MODE}) at ${base.slice(0, 12)}`]);
+  });
+});
