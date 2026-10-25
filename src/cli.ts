@@ -183,10 +183,12 @@ async function runOne(
   cwd: string,
   range: { base: string; candidate: string },
   given: ConfigOptions,
+  config: string | undefined,
 ): Promise<CheckRecord> {
+  const repo = config === undefined ? { cwd } : { cwd, config };
   try {
     const options = Object.hasOwn(given, entry.name) ? given[entry.name] : undefined;
-    return await (options === undefined ? entry.run({ cwd }, range) : entry.run({ cwd }, range, options));
+    return await (options === undefined ? entry.run(repo, range) : entry.run(repo, range, options));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { name: entry.name, status: "fail", evidence: [`check threw: ${message}`] };
@@ -282,7 +284,7 @@ export async function main(argv: readonly string[], io: CliIo = {}): Promise<num
     );
 
     const records: CheckRecord[] = [];
-    for (const e of selected) records.push(await runOne(e, cwd, { base, candidate }, read.options));
+    for (const e of selected) records.push(await runOne(e, cwd, { base, candidate }, read.options, parsed.config));
 
     const ok = allPassed(records);
     const exitCode = ok ? EXIT_OK : EXIT_CHECK_FAILED;
