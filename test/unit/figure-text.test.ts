@@ -123,6 +123,26 @@ describe("claimsInText backslashes", () => {
   });
 });
 
+describe("claimsInText unescaped characters, leading breaks, odd input", () => {
+  it("reads a backslash before a non-punctuation character as itself", () => {
+    expect(page("`git a` \\printed `x`")).toEqual([claim(1, "git a", "x")]);
+    expect(body("`git a` \\printed `x`")).toEqual([claim(1, "git a", "x")]);
+    expect(page("`git a` printed \\`x`")).toEqual([]);
+  });
+  it("counts a line break that opens the text", () => {
+    expect(body("\n`git a` printed `x`")).toEqual([claim(2, "git a", "x")]);
+    expect(body("\n\n`git a` printed `x`")).toEqual([claim(3, "git a", "x")]);
+    expect(page("\n`git a` printed `x`")).toEqual([claim(2, "git a", "x")]);
+    expect(page("\n\n`git a` printed `x`")).toEqual([claim(3, "git a", "x")]);
+  });
+  it("answers text that is not a string with no claims", () => {
+    for (const odd of [undefined, 7, null, {}, ["`git a` printed `x`"]]) {
+      expect(claimsInText(odd as unknown as string, "paragraphs")).toEqual([]);
+      expect(claimsInText(odd as unknown as string, "whole")).toEqual([]);
+    }
+  });
+});
+
 describe("claimsInText edges", () => {
   it("answers empty and backtick-free text", () => {
     expect(page("")).toEqual([]);
