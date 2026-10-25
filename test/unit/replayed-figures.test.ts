@@ -16,6 +16,9 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+const ONE_MS = 1;
+const OVERLONG_BY = 1;
+
 const ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: "Test Author",
@@ -148,6 +151,68 @@ describe("checkReplayedFigures", () => {
     expect(record.evidence).toEqual([
       `docs.md:3: \`git log -1 --format=%s ${short}\` printed \`\\u{00e9}${"x".repeat(119)}\`... claims \`caf\\u{00e9}\``,
     ]);
+  });
+
+  it("keeps every printable ASCII character, the tilde included, in a finding line", async () => {
+    const target = await commit(repo, {}, "a~b");
+    const short = target.slice(0, 12);
+    const candidate = await pageCandidate(`\`git log -1 --format=%s ${short}\` printed \`x~y\`.`);
+    const record = await checkReplayedFigures({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual([
+      `docs.md:3: \`git log -1 --format=%s ${short}\` printed \`a~b\` claims \`x~y\``,
+    ]);
+  });
+
+  it("escapes the character just past printable ASCII and keeps the claimed tilde", async () => {
+    const candidate = await pageCandidate(`\`git log -1 --format=%s ${id}\` printed \`a~b\`.`);
+    const record = await checkReplayedFigures({ cwd: repo, base, candidate });
+    expect(record.evidence).toEqual([`docs.md:3: \`git log -1 --format=%s ${id}\` printed \`second\` claims \`a~b\``]);
+    const target = await commit(repo, {}, "p\u007fq");
+    const short = target.slice(0, 12);
+    const second = await pageCandidate(`\`git log -1 --format=%s ${short}\` printed \`pq\`.`);
+    const other = await checkReplayedFigures({ cwd: repo, base, candidate: second });
+    expect(other.evidence).toEqual([
+      `docs.md:3: \`git log -1 --format=%s ${short}\` printed \`p\\u{007f}q\` claims \`pq\``,
+    ]);
+  });
+
+  it("shows an output of exactly the shown length whole and one character longer cut", async () => {
+    const whole = await commit(repo, {}, "y".repeat(SHOWN_OUTPUT_LENGTH));
+    const longer = await commit(repo, {}, "z".repeat(SHOWN_OUTPUT_LENGTH + OVERLONG_BY));
+    const wholeId = whole.slice(0, 12);
+    const longerId = longer.slice(0, 12);
+    const candidate = await pageCandidate(
+      `\`git log -1 --format=%s ${wholeId}\` printed \`no\`.`,
+      `\`git log -1 --format=%s ${longerId}\` printed \`no\`.`,
+    );
+    const record = await checkReplayedFigures({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual([
+      `docs.md:3: \`git log -1 --format=%s ${wholeId}\` printed \`${"y".repeat(SHOWN_OUTPUT_LENGTH)}\` claims \`no\``,
+      `docs.md:5: \`git log -1 --format=%s ${longerId}\` printed \`${"z".repeat(SHOWN_OUTPUT_LENGTH)}\`... claims \`no\``,
+    ]);
+  });
+
+  it("shows a claimed figure of exactly the shown length whole and one character longer cut", async () => {
+    const exact = "c".repeat(SHOWN_OUTPUT_LENGTH);
+    const over = "d".repeat(SHOWN_OUTPUT_LENGTH + OVERLONG_BY);
+    const candidate = await pageCandidate(
+      `\`git log -1 --format=%s ${id}\` printed \`${exact}\`.`,
+      `\`git log -1 --format=%s ${id}\` printed \`${over}\`.`,
+    );
+    const record = await checkReplayedFigures({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual([
+      `docs.md:3: \`git log -1 --format=%s ${id}\` printed \`second\` claims \`${exact}\``,
+      `docs.md:5: \`git log -1 --format=%s ${id}\` printed \`second\` claims \`${"d".repeat(SHOWN_OUTPUT_LENGTH)}\`...`,
+    ]);
+  });
+
+  it("accepts a timeoutMs of one millisecond", async () => {
+    const candidate = await pageCandidate("Nothing measured here.");
+    const record = await checkReplayedFigures({ cwd: repo, base, candidate, timeoutMs: ONE_MS });
+    expect(record).toEqual({ name: "RT-19", status: "pass", evidence: ["0 reproduced, 0 not replayable"] });
   });
 
   it("counts a claim with no pinned revision as not replayable", async () => {
