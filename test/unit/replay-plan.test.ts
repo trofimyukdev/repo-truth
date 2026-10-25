@@ -171,6 +171,31 @@ describe("planReplay: not replayable", () => {
     notReplayable(`git | wc -l`);
   });
 
+  it("refuses more than one pipe whatever stands between them", () => {
+    notReplayable(`git ls-tree ${A} -- | x | y`);
+    notReplayable(`git ls-tree ${A} | x | y`);
+    notReplayable(`git ls-tree ${A} | wc -l | wc -l`);
+    notReplayable(`git ls-tree ${A} -- | wc -l | wc -l`);
+    notReplayable(`git ls-tree ${A} || wc -l`);
+    notReplayable(`git ls-tree ${A} src | | wc -l`);
+    notReplayable(`git ls-tree ${A} | | wc -l`);
+    notReplayable(`git ls-tree ${A} | wc | wc -l`);
+    notReplayable(`git rev-list ${A} | x | wc -l`);
+    notReplayable(`git log ${A} | x | y | wc -l`);
+  });
+
+  it("plans one pipe only when wc and -l are its last two words", () => {
+    notReplayable(`git rev-list --count ${A} | sort -l`);
+    notReplayable(`git ls-tree ${A} | sort -l`);
+    notReplayable(`git ls-tree ${A} -- | sort -l`);
+    notReplayable(`git ls-tree ${A} -- src | wc -l -l`);
+    notReplayable(`git ls-tree ${A} | x wc -l`);
+    notReplayable(`git ls-tree ${A} -- | x`);
+    notReplayable(`git ls-tree ${A} | wc -l x`);
+    notReplayable(`git ls-tree ${A} | wc x -l`);
+    expect(planReplay(`git ls-tree ${A} -- | wc -l`)).toEqual({ args: ["ls-tree", A, "--"], countLines: true, commits: [A] });
+  });
+
   it("refuses an expansion, an escape, a glob, a tilde, a comment or a parenthesis", () => {
     notReplayable(`git log $REV`);
     notReplayable(`git log \${REV}`);
