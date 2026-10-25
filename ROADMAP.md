@@ -84,7 +84,8 @@ to the job summary.
   figure claims (RT-53).
 - Suite strength measured again on main after the modules landed: the configuration reader (RT-67),
   binary files (RT-68), weakened workflows (RT-69), the path policy (RT-70), landing trailers
-  (RT-71), autosquash leftovers (RT-72), figure text (RT-73), replayed figures (RT-76).
+  (RT-71), autosquash leftovers (RT-72), figure text (RT-73), replayed figures (RT-76), replay plans
+  (RT-77).
 
 Done when at least twenty-two checks are registered and the factory has made at least forty
 verified merges here.
