@@ -85,7 +85,7 @@ to the job summary.
 - Suite strength measured again on main after the modules landed: the configuration reader (RT-67),
   binary files (RT-68), weakened workflows (RT-69), the path policy (RT-70), landing trailers
   (RT-71), autosquash leftovers (RT-72), figure text (RT-73), replayed figures (RT-76), replay plans
-  (RT-77), the registry (RT-78), configuration changes (RT-79).
+  (RT-77), the registry (RT-78), configuration changes (RT-79), portable paths (RT-80).
 
 Done when at least twenty-two checks are registered and the factory has made at least forty
 verified merges here.
