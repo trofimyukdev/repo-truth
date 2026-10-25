@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 const ID_LENGTH = 12;
 const TOP_LEVEL_NAMES = 1;
 const NESTED_NAMES = 2;
+const LONE_BYTE = 0xc9;
 
 const ENV = {
   ...process.env,
@@ -403,5 +404,20 @@ describe("checkPortablePaths", () => {
     const record = await checkPortablePaths({ cwd: repo, base, candidate: base });
 
     expect(record.evidence).toEqual([`no name introduced in "${base}".."${base}"`]);
+  });
+
+  it("reads a name that is not UTF-8 byte for byte and sorts a case pair by those characters", async () => {
+    const lone = Buffer.concat([Buffer.from(`${repo}/`), Buffer.from([LONE_BYTE]), Buffer.from(".md")]);
+    const accented = Buffer.concat([Buffer.from(`${repo}/`), Buffer.from("é.md", "utf8")]);
+    await writeFile(accented, "accented\n");
+    await writeFile(lone, "lone\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "--quiet", "-m", "add a pair"]);
+    const candidate = await git(repo, ["rev-parse", "HEAD"]);
+
+    const record = await checkPortablePaths({ cwd: repo, base, candidate });
+
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual(['"\\u{00c9}.md" and "\\u{00e9}.md" differ only in letter case [case]']);
   });
 });
