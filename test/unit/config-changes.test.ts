@@ -227,6 +227,121 @@ describe("RT-66 configuration file changed", () => {
     expect(record.evidence).toEqual([`${CONFIG}: config-changed`]);
   });
 
+  describe("how failures and odd inputs reach the evidence", () => {
+    const FIRST_SIZE = 7;
+    const LATER_SIZE = 8;
+    const OUTSIDE = ": outside the repository, no range can change it";
+    const PRINTABLE_COUNT = 95;
+    const PRINTABLE_FIRST = 32;
+    const PRINTABLE = Array.from({ length: PRINTABLE_COUNT }, (_, i) => String.fromCharCode(PRINTABLE_FIRST + i)).join("");
+
+    it("reports git's own complaint when the directory is not a repository", async () => {
+      const plain = join(root, "plain");
+      await mkdir(plain);
+      const record = await check({ cwd: plain, base: "HEAD", candidate: "HEAD" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      const line = record.evidence[0] ?? "";
+      const prefix = 'revision "HEAD" does not name a commit: ';
+      expect(line.startsWith(prefix)).toBe(true);
+      expect(line.length).toBeGreaterThan(prefix.length);
+      expect(line).not.toContain("Command failed");
+      expect(line).toMatch(/not a git repository/i);
+    });
+
+    it("fails with the two revisions named when they share no history", async () => {
+      const base = await commit(repo, { "keep.txt": "keep\n" }, "base");
+      await git(repo, ["checkout", "--quiet", "--orphan", "unrelated"]);
+      const candidate = await commit(repo, { "other.txt": "other\n" }, "unrelated root");
+      const record = await check({ cwd: repo, base, candidate });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      const prefix = `no merge base of "${base}" and "${candidate}": `;
+      expect((record.evidence[0] ?? "").startsWith(prefix)).toBe(true);
+      expect(record.findings).toEqual([]);
+    });
+
+    it("keeps every printable ASCII character of a revision and escapes the rest", async () => {
+      await commit(repo, { "keep.txt": "keep\n" }, "base");
+      const revision = `${PRINTABLE}\u0001\u001f\u007fé\u{1f600}`;
+      const record = await check({ cwd: repo, base: revision, candidate: "HEAD" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toHaveLength(1);
+      const expected = `revision "${PRINTABLE}\\u{0001}\\u{001f}\\u{007f}\\u{00e9}\\u{1f600}" does not name a commit: `;
+      expect((record.evidence[0] ?? "").startsWith(expected)).toBe(true);
+    });
+
+    it("writes a configuration path outside the repository with its odd characters escaped", async () => {
+      const outside = join(root, "a b~é\u0001\u001f\u007f\u{1f600}.json");
+      const record = await run({ [CONFIG]: settings(FIRST_SIZE) }, { [CONFIG]: settings(LATER_SIZE) }, { config: outside });
+      expect(record.status).toBe("skip");
+      expect(record.findings).toEqual([]);
+      expect(record.evidence).toEqual([`${join(root, "a b~")}\\u{00e9}\\u{0001}\\u{001f}\\u{007f}\\u{1f600}.json${OUTSIDE}`]);
+    });
+
+    it.each([
+      ["empty", ""],
+      ["a dash", "-"],
+      ["a dashed option", "--version"],
+    ])("refuses %s before git runs, as base and as candidate", async (_label, revision) => {
+      await commit(repo, { "keep.txt": "keep\n" }, "base");
+      const asBase = await check({ cwd: repo, base: revision, candidate: "HEAD" });
+      expect(asBase.status).toBe("fail");
+      expect(asBase.evidence).toEqual([`revision "${revision}" does not name a commit`]);
+      const asCandidate = await check({ cwd: repo, base: "HEAD", candidate: revision });
+      expect(asCandidate.status).toBe("fail");
+      expect(asCandidate.evidence).toEqual([`revision "${revision}" does not name a commit`]);
+    });
+
+    it("resolves a revision one character long that names a commit", async () => {
+      await commit(repo, { "keep.txt": "keep\n" }, "base");
+      const record = await check({ cwd: repo, base: "@", candidate: "@" });
+      expect(record).toEqual({ name, status: "pass", evidence: [`${CONFIG}: not added, changed, deleted or renamed`], findings: [] });
+    });
+
+    it.each([
+      ["the top directory by its absolute path", () => repo],
+      ["the top directory as a dot", () => "."],
+      ["the directory above it by its absolute path", () => root],
+      ["the directory above it as two dots", () => ".."],
+    ])("skips a configuration path naming %s", async (_label, pick) => {
+      const config = pick();
+      const record = await run({ [CONFIG]: settings(FIRST_SIZE) }, { [CONFIG]: settings(LATER_SIZE) }, { config });
+      expect(record.status).toBe("skip");
+      expect(record.findings).toEqual([]);
+      expect(record.evidence).toEqual([`${config}${OUTSIDE}`]);
+    });
+
+    it("does not take a file whose name begins with two dots for outside the repository", async () => {
+      const record = await run({ "..odd.json": settings(FIRST_SIZE) }, { "..odd.json": settings(LATER_SIZE) }, { config: "..odd.json" });
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual(["..odd.json: config-changed"]);
+    });
+
+    describe("the caller's sanctions", () => {
+      const id = `config-changed:${CONFIG}`;
+      const before = { [CONFIG]: settings(FIRST_SIZE) };
+      const after = { [CONFIG]: settings(LATER_SIZE) };
+
+      it.each([
+        ["empty", ""],
+        ["white space alone", " \t "],
+      ])("sanction nothing with a reason that is %s", async (_label, reason) => {
+        const record = await run(before, after, { sanctions: { [id]: reason } });
+        expect(record.status).toBe("fail");
+        expect(record.evidence).toEqual([`${CONFIG}: config-changed`]);
+        expect(record.findings[0]?.sanction).toBeNull();
+      });
+
+      it("sanction a finding with a reason one character long", async () => {
+        const record = await run(before, after, { sanctions: { [id]: "x" } });
+        expect(record.status).toBe("pass");
+        expect(record.evidence).toEqual([`${CONFIG}: config-changed - sanctioned: x`]);
+        expect(record.findings[0]?.sanction).toBe("x");
+      });
+    });
+  });
+
   it("main runs it with --check RT-66 and --config over such a range", async () => {
     await commit(repo, { "conf/a.json": settings(10) }, "base");
     await commit(repo, { "conf/a.json": settings(99) }, "loosen");
