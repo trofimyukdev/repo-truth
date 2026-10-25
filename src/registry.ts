@@ -30,6 +30,8 @@ import { checkReplayedFigures } from "./replayed-figures.js";
 export interface Repository {
   /** The working directory git runs in. */
   readonly cwd: string;
+  /** The path --config named, as it was given; absent when the settings were read from repo-truth.json at the base. */
+  readonly config?: string;
 }
 
 /** The range a check answers for, as resolved commit ids. */
@@ -54,7 +56,7 @@ export interface RegistryEntry {
   ) => CheckRecord | Promise<CheckRecord>;
 }
 
-type CheckFunction = (options: { cwd: string; base: string; candidate: string }) => CheckRecord | Promise<CheckRecord>;
+type CheckFunction = (options: { cwd: string; base: string; candidate: string; config?: string }) => CheckRecord | Promise<CheckRecord>;
 
 function entry(name: string, check: CheckFunction, declared: EntryOptions = {}): RegistryEntry {
   const options: EntryOptions = Object.fromEntries(Object.entries(declared));
@@ -68,6 +70,8 @@ function entry(name: string, check: CheckFunction, declared: EntryOptions = {}):
           if (Object.hasOwn(given, option)) handed[option] = given[option];
         }
       }
+      delete handed.config;
+      if (repo.config !== undefined) handed.config = repo.config;
       return check(
         Object.assign(handed, { cwd: repo.cwd, base: range.base, candidate: range.candidate }) as Parameters<CheckFunction>[0],
       );
@@ -75,7 +79,7 @@ function entry(name: string, check: CheckFunction, declared: EntryOptions = {}):
   };
 }
 
-const RESERVED_OPTIONS = ["cwd", "base", "candidate", "sanctions"];
+const RESERVED_OPTIONS = ["cwd", "base", "candidate", "sanctions", "config"];
 
 /** What is wrong with a module's optionKinds, or undefined when it is valid. */
 function optionKindsProblem(value: unknown): string | undefined {
