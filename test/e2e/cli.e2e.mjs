@@ -416,6 +416,96 @@ describe("repo-truth check, built", () => {
     assert.equal(passed.record.status, "pass");
   });
 
+  /** RT-66 over a range: the exit code, the record's status and its evidence lines, exactly. */
+  function assertRt66(repo, code, status, evidence, ...more) {
+    const { result, record } = runCheck(repo.dir, repo, "RT-66", ...more);
+    assert.equal(result.code, code, result.stderr + result.stdout);
+    assert.equal(record.status, status);
+    assert.deepEqual(record.evidence, evidence);
+  }
+
+  const baseConfig = configText({ "RT-12": { maxBytes: 100000 } });
+  const otherConfig = configText({ "RT-12": { maxBytes: 200000 } });
+
+  test("RT-66 fails a range that changes repo-truth.json, and one that adds, deletes or renames it", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const changed = makeRepoWith({
+      baseFiles: { "repo-truth.json": baseConfig },
+      added: { "repo-truth.json": otherConfig },
+    });
+    assertRt66(changed, 1, "fail", ["repo-truth.json: config-changed"]);
+    const added = makeRepoWith({ added: { "repo-truth.json": baseConfig } });
+    assertRt66(added, 1, "fail", ["repo-truth.json: config-added"]);
+    const deleted = makeRepoWith({ baseFiles: { "repo-truth.json": baseConfig }, removed: ["repo-truth.json"] });
+    assertRt66(deleted, 1, "fail", ["repo-truth.json: config-deleted"]);
+    const renamed = makeRepoWith({
+      baseFiles: { "repo-truth.json": baseConfig },
+      removed: ["repo-truth.json"],
+      added: { "moved-config.json": baseConfig },
+    });
+    assertRt66(renamed, 1, "fail", ["repo-truth.json: config-renamed (other path: moved-config.json)"]);
+  });
+
+  test("RT-66 watches the file --config names inside the repository, not repo-truth.json", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const changed = makeRepoWith({
+      baseFiles: { "alt-config.json": baseConfig, "repo-truth.json": baseConfig },
+      added: { "alt-config.json": otherConfig },
+    });
+    assertRt66(changed, 1, "fail", ["alt-config.json: config-changed"], "--config", "alt-config.json");
+    const other = makeRepoWith({
+      baseFiles: { "alt-config.json": baseConfig, "repo-truth.json": baseConfig },
+      added: { "repo-truth.json": otherConfig },
+    });
+    assertRt66(other, 0, "pass", ["alt-config.json: not added, changed, deleted or renamed"], "--config", "alt-config.json");
+  });
+
+  test("RT-66 skips a --config file outside the repository", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const repo = makeRepoWith({
+      baseFiles: { "repo-truth.json": baseConfig },
+      added: { "repo-truth.json": otherConfig },
+    });
+    const outside = join(scratch, "outside-config-" + counter++ + ".json");
+    writeFileSync(outside, baseConfig);
+    assertRt66(repo, 0, "skip", [outside + ": outside the repository, no range can change it"], "--config", outside);
+  });
+
+  test("RT-66 passes a change a Sanctioned-Weakening line of the range sanctions, and only that one", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const sanctioned = makeRepoWith({
+      baseFiles: { "repo-truth.json": baseConfig },
+      added: { "repo-truth.json": otherConfig },
+    });
+    git(sanctioned.dir, "commit", "--quiet", "--amend", "-m",
+      "change files\n\nSanctioned-Weakening: config-changed:repo-truth.json the limit moves with the new fixtures");
+    sanctioned.candidate = git(sanctioned.dir, "rev-parse", "HEAD");
+    assertRt66(sanctioned, 0, "pass", [
+      "repo-truth.json: config-changed - sanctioned: the limit moves with the new fixtures",
+    ]);
+    const wrong = makeRepoWith({
+      baseFiles: { "repo-truth.json": baseConfig },
+      added: { "repo-truth.json": otherConfig },
+    });
+    git(wrong.dir, "commit", "--quiet", "--amend", "-m",
+      "change files\n\nSanctioned-Weakening: config-added:repo-truth.json not this category");
+    wrong.candidate = git(wrong.dir, "rev-parse", "HEAD");
+    assertRt66(wrong, 1, "fail", ["repo-truth.json: config-changed"]);
+  });
+
+  test("RT-66 passes a range that leaves repo-truth.json alone", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const present = makeRepoWith({ baseFiles: { "repo-truth.json": baseConfig } });
+    assertRt66(present, 0, "pass", ["repo-truth.json: not added, changed, deleted or renamed"]);
+    const absent = makeRepoWith({});
+    assertRt66(absent, 0, "pass", ["repo-truth.json: not added, changed, deleted or renamed"]);
+  });
+
   test("cases ran, under the operating system's temporary directory", async () => {
     await start();
     assert.ok(ran > 0, "no case ran the built file");
