@@ -72,6 +72,8 @@ passes over this README's own figures from the root commit.
 - A configuration file that gives one name twice in an object is refused, each repeat named (RT-75).
 - The settings are read from repo-truth.json at the repository's top directory, wherever in the
   repository the command runs, and the configuration-change check watches that file (RT-81).
+- The end-to-end suite runs the built command in a subdirectory, where it reads and watches the top
+  directory's repo-truth.json and reads a relative `--config` against the subdirectory (RT-85).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

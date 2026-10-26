@@ -1,0 +1,130 @@
+id: RT-85
+repo: repo-truth
+priority: 21
+milestone: M0
+title: The end-to-end suite runs the built command in a subdirectory, where it reads and watches the top directory's repo-truth.json
+
+outcome: >
+  Since RT-81 the command reads its settings from repo-truth.json at the
+  top directory of the base commit wherever in the repository it runs, a
+  subdirectory's repo-truth.json is never read, and the
+  configuration-change check, RT-66, with no `--config` watches that top
+  directory's file; a relative `--config` is still read against the
+  directory the command runs in, by the settings reader and by RT-66
+  alike. The unit suites call the two modules, and the command's own unit
+  suite hands it the directory it runs in, always a repository's top. The
+  end-to-end suite (RT-17), which the full_suite rung and the post-merge
+  smoke run, runs
+  every case at a throwaway repository's top directory, where the top
+  directory and the directory the command runs in are one. So a build
+  whose command, run in a subdirectory, reads that subdirectory's file
+  again, watches it again, or reads a relative `--config` against the top
+  directory would leave every case of the suite green. This task adds the
+  cases that catch each of those, in test/e2e/cli.e2e.mjs alone, run
+  against the built command as a child process over throwaway
+  repositories with the command's working directory a subdirectory of the
+  repository, as the suite's other cases are run at its top. A case that
+  names a check first asserts that the built registry holds it, so a check
+  renamed or dropped fails the suite instead of leaving a case that tests
+  nothing.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own and use the ones the file already declares.
+
+  The change holds tests only: the factory's mutation probe has no source
+  line to plant on, the stage that scores the tests records the change as
+  one of test paths alone, and the holdout item below answers for it.
+
+  Written on 2026-10-26 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. No source
+  file changes.
+
+measure:
+  - npm run build && node --test test/e2e/cli.e2e.mjs
+
+not_done_if:
+  - "the suite stays green on a build whose command, run in a subdirectory with no `--config`, reads that subdirectory's repo-truth.json or no file where the base commit's top directory holds one, or names its source otherwise than `repo-truth.json at <the base commit's first twelve hex digits>`"
+  - "the suite stays green on a build whose RT-66, run in a subdirectory with no `--config`, watches that subdirectory's repo-truth.json instead of the top directory's or beside it"
+  - "the suite stays green on a build that reads a relative `--config` given in a subdirectory against any directory but that subdirectory, in the settings it applies or in the file RT-66 watches - whether the settings reader, RT-66, or the command that hands them the directory it runs in reads it so"
+  - "the suite fails on the build as it stands, or leaves files in the temporary directory after it ends"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, marked `only` or `todo`, or made to ask less - a line holding an `assert` it holds removed or rewritten among them; or the suite declares no new test"
+  - "the task changes any file but test/e2e/cli.e2e.mjs - a source file, package.json, a dependency"
+
+acceptance:
+  - type: command
+    command: npm run build && node --test test/e2e/cli.e2e.mjs
+    required: true
+  - type: behavior
+    statement: >
+      test/e2e/cli.e2e.mjs holds cases, each running the built command
+      as a child process over a throwaway repository under the operating
+      system's temporary directory with its working directory a
+      subdirectory of that repository, with `--check` naming one check and
+      `--format json`, each first asserting that the built registry holds
+      that check, and each asserting the exit code, the record's status and
+      the json document's `config` field exactly, and an RT-66 record's
+      evidence lines exactly.
+  - type: behavior
+    statement: >
+      The cases cover, each run in a subdirectory: with repo-truth.json at
+      the base's top directory setting RT-12's `maxBytes` below the size of
+      a file the range adds, RT-12 fails, exit 1, and `config` is
+      `repo-truth.json at <the base's first twelve hex digits>`; with
+      repo-truth.json in the subdirectory alone, setting the same limit,
+      RT-12 passes, exit 0, and `config` is null; with `--config
+      repo-truth.json`, a relative path, while the top directory's
+      repo-truth.json sets RT-12's `maxBytes` above the size of a file the
+      range adds and the subdirectory's sets it below that size, RT-12
+      fails, exit 1, and `config` is `repo-truth.json`; RT-66
+      with no `--config` fails a range that changes the top directory's
+      repo-truth.json, exit 1, with the one evidence line `repo-truth.json:
+      config-changed`, and passes a range that changes only the
+      subdirectory's, exit 0, with the one evidence line `repo-truth.json:
+      not added, changed, deleted or renamed`; and RT-66 with `--config
+      repo-truth.json` fails a range that changes the subdirectory's file,
+      exit 1, with the one evidence line `<the subdirectory>/repo-truth.json:
+      config-changed`.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-85.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/e2e/cli.e2e.mjs
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - test/unit/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - .gitignore
+  - action.yml
+  - repo-truth.json
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:e2e-config-top]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
