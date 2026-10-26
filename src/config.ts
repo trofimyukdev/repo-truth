@@ -179,6 +179,12 @@ function parseFrom(text: string, kinds: OptionKinds, source: string): ConfigOpti
   }
 }
 
+/**
+ * With no `path`, the settings are repo-truth.json at the top directory of the
+ * base commit, whatever directory of the repository `cwd` is in; a
+ * subdirectory's repo-truth.json is never read. A `path` is read as given, a
+ * relative one against `cwd`.
+ */
 export async function readConfig(
   options: { cwd: string; base: string; path?: string },
   kinds: OptionKinds,
@@ -201,7 +207,7 @@ export async function readConfig(
     if (resolved.code !== 0) throw failed(revParse, resolved);
     const commit = resolved.stdout.trim();
 
-    const lsTree = ["ls-tree", "-z", commit, "--", CONFIG_FILE];
+    const lsTree = ["ls-tree", "-z", "--full-tree", commit, "--", CONFIG_FILE];
     const listing = await git(cwd, lsTree);
     if (listing.code !== 0) throw failed(lsTree, listing);
     const entry = listing.stdout.split("\0")[0] as string;

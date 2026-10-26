@@ -7,8 +7,8 @@
  * file the run's settings were read from.
  *
  * The file it watches: with no `config` option (no `--config`), repo-truth.json
- * in the directory the command runs in, by its path from the repository's top
- * directory; with `config`, that path, read against `cwd` when relative, when
+ * at the top directory of the repository, by that path, from any directory of
+ * the repository; with `config`, that path, read against `cwd` when relative, when
  * its directory (symbolic links resolved) is the top directory or below it. A
  * file outside the repository is one no range can change: a `skip` naming it.
  * A revision that names no commit, a git that fails or a `config` path whose
@@ -95,10 +95,7 @@ async function resolveCommit(cwd: string, revision: string): Promise<string> {
 
 /** The watched path from the top directory, or `null` when the file is outside the repository. */
 async function watchedPath(cwd: string, config: string | undefined): Promise<string | null> {
-  if (config === undefined) {
-    const prefix = (await runGit(cwd, ["rev-parse", "--show-prefix"])).replace(/\n$/, "");
-    return `${prefix}repo-truth.json`;
-  }
+  if (config === undefined) return "repo-truth.json";
   const top = await realpath((await runGit(cwd, ["rev-parse", "--show-toplevel"])).replace(/\n$/, ""));
   const absolute = isAbsolute(config) ? config : resolve(cwd, config);
   let directory: string;
