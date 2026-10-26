@@ -1,0 +1,111 @@
+id: RT-83
+repo: repo-truth
+priority: 23
+milestone: M0
+title: Suite strength, conflict markers, again after RT-64, a path that is not UTF-8 - tests that fail on the defects the mutation probe leaves unasserted in src/conflict-markers.ts
+
+outcome: >
+  The factory measures how strong a module's tests are by planting small
+  defects in it and counting the ones no test notices. RT-43 strengthened
+  the suite of src/conflict-markers.ts, and RT-64 has changed the module
+  since. Taken again on origin/main with the factory's own mutation
+  generator, the module's suites - test/unit/conflict-markers.test.ts and
+  test/unit/conflict-markers-types.test.ts - leave alive one defect a test
+  can catch: how a path that is not valid UTF-8 is read. It is a way the
+  check could break without a test saying so. This task adds the tests
+  that say so. It changes no source file.
+
+  Written on 2026-10-26 under the operator's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it. A change of
+  tests alone gives the factory's mutation probe nothing to mutate, so the
+  holdout is what shows these tests are strong: it plants the defects the
+  probe leaves surviving back into the module and demands that the suite
+  turn red on each.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+measure:
+  - npx vitest run test/unit/conflict-markers.test.ts
+
+not_done_if:
+  - "a behavior an acceptance item below names is not pinned by an assertion that fails when that behavior of src/conflict-markers.ts changes, so a defect planted in it leaves every test of the suite green"
+  - "the suite reads the module's source text, or compares it with a copy, so a harmless rewrite of the module turns it red as surely as a defect does"
+  - "a test the suite holds at the merge base is deleted, renamed, skipped, focused or made to ask less, so the suite grew stronger in one place by asking less in another"
+  - "a file other than test/unit/conflict-markers.test.ts changes - the module, another test, or a fixture committed beside the suite - so the change is not one of tests alone"
+  - "the suite fails on the module as it stands, depends on the order or the timing of its cases, or leaves files in the repository or in the temporary directory"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/conflict-markers.test.ts
+    required: true
+  - type: behavior
+    statement: >
+      The suite test/unit/conflict-markers.test.ts calls
+      `checkConflictMarkers` of src/conflict-markers.ts over real
+      throwaway repositories, as its existing cases do, and asserts
+      the records it returns.
+  - type: behavior
+    statement: >
+      A path that is not valid UTF-8 is read byte for byte, each byte
+      one character: a range that adds a file whose name is the single
+      byte 0xC9 followed by `.txt`, holding an opening conflict marker
+      on its first line, fails with the one evidence line made of the
+      character U+00C9, the capital E with an acute accent, followed
+      by `.txt:1: opening marker`.
+  - type: behavior
+    statement: >
+      Each fixture number sits in a constant declared on a line of its
+      own whose text holds none of the words threshold, coverage,
+      minimum, min, maximum, max, at least or at most, so that a later
+      edit of a fixture is not read as a bound moved in a test.
+      Fixtures are built at run time, those that need a repository in
+      throwaway repositories under the operating system's temporary
+      directory, removed when the suite ends whether it passed or not;
+      a git that fails is made by the repository the test builds,
+      never by a stub on the path; nothing is installed or fetched;
+      and no test reads src/conflict-markers.ts as text.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-83.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - test/unit/conflict-markers.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - src/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - .gitignore
+  - action.yml
+  - repo-truth.json
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:suite-conflict-markers-again]
+exclusive_resources: []
+
+risk:
+  level: low
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
