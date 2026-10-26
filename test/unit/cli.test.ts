@@ -630,3 +630,65 @@ describe("as a program", () => {
     expect(result.stdout).toBe("");
   });
 });
+
+describe("the range options and the single check", () => {
+  const withEvent = (event: string | undefined) => async (argv: string[]) => {
+    let stdout = "";
+    let stderr = "";
+    const code = await main(argv, {
+      cwd: repo,
+      stdout: (t) => void (stdout += t),
+      stderr: (t) => void (stderr += t),
+      env: event === undefined ? {} : { GITHUB_EVENT_NAME: event },
+    });
+    return { code, stdout, stderr };
+  };
+
+  it("--base together with --target is a bad invocation", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    const result = await run(["check", "--no-fetch", "--base", first, "--target", first, "--candidate", second], repo);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("--base and --target are exclusive");
+    expect(calls).toEqual([]);
+  });
+
+  it("one --check runs that check alone and exits as its record says", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls), stub("B", "fail", calls), stub("C", "pass", calls));
+    const failing = await run([...range(), "--check", "B"], repo);
+    expect(calls).toEqual(["B"]);
+    expect(failing.code).toBe(EXIT_CHECK_FAILED);
+
+    calls.length = 0;
+    useRegistry(stub("A", "fail", calls), stub("B", "pass", calls), stub("C", "fail", calls));
+    const passing = await run([...range(), "--check", "B"], repo);
+    expect(calls).toEqual(["B"]);
+    expect(passing.code).toBe(EXIT_OK);
+  });
+
+  it("--target is refused under a push event and no check runs", async () => {
+    const calls: string[] = [];
+    useRegistry(stub("A", "pass", calls));
+    const result = await withEvent("push")(["check", "--no-fetch", "--target", first, "--candidate", second]);
+    expect(result.code).toBe(EXIT_BAD_INVOCATION);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("push");
+    expect(calls).toEqual([]);
+  });
+
+  it("--base runs under a push event as it would with no event", async () => {
+    for (const status of ["pass", "fail"] as const) {
+      const calls: string[] = [];
+      useRegistry(stub("A", status, calls));
+      const argv = ["check", "--no-fetch", "--base", first, "--candidate", second];
+      const pushed = await withEvent("push")(argv);
+      const bare = await withEvent(undefined)(argv);
+      expect(calls).toEqual(["A", "A"]);
+      expect(pushed.code).toBe(bare.code);
+      expect(pushed.code).toBe(status === "pass" ? EXIT_OK : EXIT_CHECK_FAILED);
+      expect(pushed.stdout).toBe(bare.stdout);
+    }
+  });
+});
