@@ -70,6 +70,8 @@ passes over this README's own figures from the root commit.
 - A range that adds, changes, deletes or renames the file the run's settings were read from fails,
   unless a commit message of the range sanctions the change (RT-66).
 - A configuration file that gives one name twice in an object is refused, each repeat named (RT-75).
+- The settings are read from repo-truth.json at the repository's top directory, wherever in the
+  repository the command runs, and the configuration-change check watches that file (RT-81).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

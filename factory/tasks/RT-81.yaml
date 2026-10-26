@@ -1,0 +1,180 @@
+id: RT-81
+repo: repo-truth
+priority: 21
+milestone: M0
+title: The settings are read from repo-truth.json at the repository's top directory, wherever in the repository the command runs
+
+outcome: >
+  The command reads its settings with `readConfig` of src/config.ts. With
+  no `--config` it asks git for repo-truth.json in the base commit by a
+  path git reads against the directory the command runs in, so a run
+  from a subdirectory reads that subdirectory's repo-truth.json, and
+  with none there runs on the defaults - while the maintainer's file at
+  the top directory, the one the roadmap names "repo-truth.json at the
+  root", is not read at all. The same run names its source
+  `repo-truth.json at <commit>`, whichever of the two it read. The
+  configuration-change check, RT-66 in src/checks/config-changes.ts,
+  watches the path the run read: with no `config` option, repo-truth.json
+  in the directory the check runs in, so from a subdirectory a range
+  that loosens the top directory's file is no finding.
+
+  This task makes both read the top directory. With no `--config`,
+  `readConfig` reads repo-truth.json at the top directory of the base
+  commit wherever in the repository the command runs, a subdirectory's
+  repo-truth.json is never read, and the source it names stays
+  `repo-truth.json at <the base commit's first twelve hex digits>`. With
+  no `config` option, RT-66 watches repo-truth.json at the top directory,
+  by that path, from any directory of the repository; a change to a
+  subdirectory's repo-truth.json is then no finding. Nothing else
+  changes: a `--config` path, and RT-66's `config` option, are read as
+  today - a relative one against the directory the command runs in, the
+  Action's `config` input says so - and a run at the top directory
+  reads, prints and exits as it does today. The comments of `readConfig`
+  and of src/checks/config-changes.ts say where the file is read and
+  watched.
+
+  One test the merge base holds asserts the old reading:
+  test/unit/config-changes.test.ts, the test titled `watches repo-truth.json
+  of the subdirectory the check is run in`, which runs RT-66 in a
+  subdirectory with no `config`. It keeps its title and every assertion
+  it holds, and its three runs in the subdirectory gain the option
+  `config` naming `repo-truth.json`, a path read against that
+  subdirectory - so it pins what its title says through the road that
+  still reads a subdirectory's file. The option is written inside each
+  of the three calls, as `config: CONFIG` or `config: "repo-truth.json"`,
+  and no other text of the test changes: each `expect(` line stays as the
+  merge base writes it but for that option. No other test file the merge
+  base holds changes. This package's own weakened-tests check (RT-04) runs
+  over every change in the project_truth rung, and a test whose title
+  disappears from a test file is one of its findings; keeping the title
+  is why the test is changed this way and not replaced.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces in
+  src/checks/config-changes.ts holds a construct its mutation catalogue
+  always mutates, as the not_done_if below says.
+
+  Written on 2026-10-26 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/config-top.test.ts
+
+creates_test_files:
+  - test/unit/config-top.test.ts
+
+not_done_if:
+  - "run in a subdirectory of the repository with no `--config`, `readConfig` reads anything but repo-truth.json at the top directory of the base commit - a subdirectory's repo-truth.json is read, or the top directory's file is not, or a base whose top directory holds no repo-truth.json is not read as no file - or the source it names is not `repo-truth.json at <the base commit's first twelve hex digits>`"
+  - "with no `config` option, RT-66 run in a subdirectory watches any path but repo-truth.json at the top directory: a range that adds, changes, deletes or renames that file is not a `fail` whose evidence names `repo-truth.json` and the category, or a range that changes only a subdirectory's repo-truth.json is not a `pass`"
+  - "a `--config` path or RT-66's `config` option is read otherwise than at the merge base - a relative one no longer against the directory the command runs in - or a run at the top directory reads, prints or exits otherwise than at the merge base"
+  - "the built command, run in a subdirectory over a range whose base holds repo-truth.json at the top directory, does not apply that file's options or does not name it as `repo-truth.json at <commit>` in its json document's `config` field"
+  - "a test file the merge base holds is deleted or renamed, or is changed anywhere but in test/unit/config-changes.test.ts's test titled `watches repo-truth.json of the subdirectory the check is run in`, which keeps its title and each of its assertions; test/unit/config-top.test.ts is not a file the task adds; or a dependency is added"
+  - "no line of code the task adds or replaces in src/checks/config-changes.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but src/config.ts, src/checks/config-changes.ts, test/unit/config-changes.test.ts and test/unit/config-top.test.ts, or does not change both src/config.ts and src/checks/config-changes.ts; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/config-top.test.ts
+    required: true
+  - type: command
+    command: npx vitest run test/unit/config-changes.test.ts test/unit/config.test.ts test/unit/config-duplicates.test.ts test/unit/cli-config.test.ts test/unit/config-handoff.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync: x, spawnSync: s } = await import("node:child_process"); const { mkdtempSync: m, writeFileSync: w, mkdirSync: d, rmSync: z } = await import("node:fs"); const { join: j } = await import("node:path"); const { tmpdir: t } = await import("node:os"); const r = m(j(t(), "rt81-")); const g = (...a) => x("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...a], { cwd: r }); g("init", "-q", "-b", "main"); w(j(r, "repo-truth.json"), JSON.stringify({ schema: "repo-truth.config/v1", checks: { "RT-12": { maxBytes: 10 } } })); d(j(r, "sub")); w(j(r, "sub", "keep"), "k\n"); g("add", "-A"); g("commit", "-q", "-m", "a"); w(j(r, "sub", "big.txt"), "x".repeat(100)); g("add", "-A"); g("commit", "-q", "-m", "b"); const c = s(process.execPath, [j(process.cwd(), "dist/cli.js"), "check", "--base", "HEAD^1", "--candidate", "HEAD", "--no-fetch", "--check", "RT-12", "--format", "json"], { cwd: j(r, "sub"), encoding: "utf8" }); let o = {}; try { o = JSON.parse(c.stdout); } catch {} z(r, { recursive: true, force: true }); process.exitCode = Number(c.status !== 1 || !/^repo-truth\.json at [0-9a-f]{12}$/.test(String(o.config)))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/config.ts: `readConfig`, with no `path`, asks git for
+      repo-truth.json at the top directory of the base commit whatever
+      directory `cwd` is in the repository, and its comment says so;
+      src/checks/config-changes.ts: with no `config` option the watched
+      path is `repo-truth.json`, the top directory's file, and the
+      module's header comment says that the file it watches with no
+      `config` is repo-truth.json at the top directory. The fourth command
+      item above runs the built command in a subdirectory over a range
+      whose base holds repo-truth.json at the top directory and requires
+      that file's limit to fail the range and the json document to name
+      it as its source.
+  - type: behavior
+    statement: >
+      Tests in test/unit/config-top.test.ts build a throwaway repository
+      with a repo-truth.json at its top directory and one in a
+      subdirectory, holding different options, and assert, for
+      `readConfig` called with `cwd` in the subdirectory and with no
+      `path`, the options and the source read from the top directory's
+      file, and no file read when only the subdirectory holds one; and,
+      for RT-66's `check` with `cwd` in the subdirectory and no `config`,
+      a `fail` naming `repo-truth.json` for a range that changes the top
+      directory's file and a `pass` for a range that changes only the
+      subdirectory's. In test/unit/config-changes.test.ts the test titled
+      `watches repo-truth.json of the subdirectory the check is run in`
+      runs RT-66's `check` three times with `cwd` in the subdirectory,
+      each with `config` naming `repo-truth.json`, and asserts a `fail`
+      with the one evidence line `sub/repo-truth.json: config-changed` for
+      a range that changes the subdirectory's file, a `fail` for that
+      range checked again, and a `pass` for a range that changes only the
+      top directory's file. Fixtures
+      are built under the operating system's temporary directory and
+      removed when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-81.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/config.ts
+  - src/checks/config-changes.ts
+  - test/unit/config-changes.test.ts
+  - test/unit/config-top.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/cli.ts
+  - src/registry.ts
+  - src/action.ts
+  - src/index.ts
+  - test/unit/config.test.ts
+  - test/unit/config-duplicates.test.ts
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+  - test/unit/config-handoff.test.ts
+  - test/unit/registry-options.test.ts
+  - test/e2e/**
+
+dependencies: [RT-84]
+discovered_from: null
+resources: [repo-truth:config-top]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
