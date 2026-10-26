@@ -113,14 +113,14 @@ describe("RT-66 configuration file changed", () => {
   it("watches repo-truth.json of the subdirectory the check is run in", async () => {
     const before = { "sub/repo-truth.json": settings(10), [CONFIG]: settings(10) };
     const sub = join(repo, "sub");
-    const own = await run(before, { "sub/repo-truth.json": settings(99) }, { cwd: sub });
+    const own = await run(before, { "sub/repo-truth.json": settings(99) }, { cwd: sub, config: CONFIG });
     expect(own.status).toBe("fail");
     expect(own.evidence).toEqual(["sub/repo-truth.json: config-changed"]);
-    const top = await check({ cwd: sub, base: "HEAD~1", candidate: "HEAD" });
+    const top = await check({ cwd: sub, base: "HEAD~1", candidate: "HEAD", config: CONFIG });
     expect(top.status).toBe("fail");
     const base = await commit(repo, { [CONFIG]: settings(50) }, "top");
     const topOnly = await commit(repo, { [CONFIG]: settings(60) }, "top again");
-    expect((await check({ cwd: sub, base, candidate: topOnly })).status).toBe("pass");
+    expect((await check({ cwd: sub, base, candidate: topOnly, config: CONFIG })).status).toBe("pass");
   });
 
   describe("with a config path inside the repository", () => {
