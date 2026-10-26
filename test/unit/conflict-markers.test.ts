@@ -345,4 +345,16 @@ describe("checkConflictMarkers", () => {
     expect(record.status).toBe("pass");
     expect(record.evidence).toEqual([`${written} added line(s) in "${base}"..."${candidate}" hold no conflict marker`]);
   });
+
+  it("reads a path that is not valid UTF-8 byte for byte, each byte one character", async () => {
+    const lead = 0xc9;
+    const name = Buffer.concat([Buffer.from([lead]), Buffer.from(".txt")]);
+    await writeFile(Buffer.concat([Buffer.from(`${repo}/`), name]), lines(`${OPEN} HEAD`));
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "--quiet", "-m", "odd name"]);
+    const candidate = await git(repo, ["rev-parse", "HEAD"]);
+    const record = await checkConflictMarkers({ cwd: repo, base, candidate });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual(["É.txt:1: opening marker"]);
+  });
 });
