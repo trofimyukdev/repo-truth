@@ -66,6 +66,41 @@ function kindProblem(kind: OptionKind, value: unknown): string | null {
   }
 }
 
+type Frame = { array: boolean; path: string; names: Set<string>; index: number; wantsName: boolean; member: string };
+
+/**
+ * `JSON.parse` keeps the last of two equal member names and says nothing, which
+ * is why the repeats are found here, over the tokens of a text already known to
+ * be valid JSON. Each repeat is one issue naming its path.
+ */
+function repeatedNames(text: string): string[] {
+  const repeats: string[] = [];
+  const stack: Frame[] = [];
+  for (const [token] of text.matchAll(/"(?:[^"\\]|\\.)*"|[{}[\],:]|[^\s{}[\],:"]+/g)) {
+    const top = stack[stack.length - 1];
+    if (token === "{" || token === "[") {
+      let path = "";
+      if (top !== undefined) path = top.array ? `${top.path}[${top.index}]` : top.member;
+      stack.push({ array: token === "[", path, names: new Set(), index: 0, wantsName: true, member: "" });
+    } else if (token === "}" || token === "]") {
+      stack.pop();
+    } else if (token === ",") {
+      if (top !== undefined) {
+        top.index += 1;
+        top.wantsName = true;
+      }
+    } else if (token === ":") {
+      if (top !== undefined) top.wantsName = false;
+    } else if (top !== undefined && !top.array && top.wantsName) {
+      const name = JSON.parse(token) as string;
+      top.member = top.path === "" ? name : `${top.path}.${name}`;
+      if (top.names.has(name)) repeats.push(`${top.member}: given more than once`);
+      top.names.add(name);
+    }
+  }
+  return repeats;
+}
+
 /** Reads `text` as a configuration document; throws a `ConfigError` naming every problem. */
 export function parseConfig(text: string, kinds: OptionKinds): ConfigOptions {
   let document: unknown;
@@ -76,7 +111,7 @@ export function parseConfig(text: string, kinds: OptionKinds): ConfigOptions {
   }
   if (!isObject(document)) throw new ConfigError([`the document: expected a JSON object, found ${describe(document)}`]);
 
-  const issues: string[] = [];
+  const issues: string[] = repeatedNames(text);
   const options: ConfigOptions = {};
   if (!own(document, "schema")) issues.push(`schema: required, must be "${CONFIG_SCHEMA}"`);
   for (const key of Object.keys(document)) {
