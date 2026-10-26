@@ -56,6 +56,28 @@ describe("repeated member names", () => {
   it("reads equal names in different objects and name-like text in strings", () => {
     expect(issues(`{${head},"checks":{"RT-12":{"maxBytes":1},"RT-18":{"registries":["\\"maxBytes\\":2"]}}}`)).toBeNull();
   });
+  it("never takes a string value for a member name", () => {
+    expect(issues(`{${head},"checks":{"RT-12":{"maxBytes":"maxBytes"}}}`)).toEqual([
+      'checks.RT-12.maxBytes: expected a non-negative safe integer, found "maxBytes"',
+    ]);
+    expect(issues(`{"schema":"schema","checks":"checks"}`)).toEqual([
+      'schema: expected "repo-truth.config/v1", found "schema"',
+      "checks: expected an object, found a string",
+    ]);
+    expect(issues(`{${head},"checks":{"RT-12":{"maxBytes":"x","other":"maxBytes"}}}`)).toEqual([
+      'checks.RT-12.maxBytes: expected a non-negative safe integer, found "x"',
+      "checks.RT-12.other: unknown option of RT-12",
+    ]);
+    expect(issues(`{${head},"checks":{"RT-12":{"maxBytes":"checks"},"RT-18":"RT-18"}}`)).toEqual([
+      'checks.RT-12.maxBytes: expected a non-negative safe integer, found "checks"',
+      "checks.RT-18: expected an object, found a string",
+    ]);
+  });
+  it("never takes equal strings in an array for a repeat", () => {
+    expect(issues(`{${head},"checks":{"RT-18":{"registries":["a","a","b"]}}}`)).toBeNull();
+    expect(issues(`{${head},"checks":{"RT-18":{"registries":["a","a"]},"RT-12":{}}}`)).toBeNull();
+    expect(issues(`{${head},"checks":{"RT-18":{"registries":["registries","registries"]}}}`)).toBeNull();
+  });
   it("leaves invalid JSON and non-objects to the usual issue", () => {
     expect(issues('{"a":1,"a":2')?.[0]).toMatch(/^the document: not valid JSON/);
     expect(issues('[{"a":1,"a":2}]')).toEqual(["the document: expected a JSON object, found an array"]);
