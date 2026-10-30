@@ -506,6 +506,95 @@ describe("repo-truth check, built", () => {
     assertRt66(absent, 0, "pass", ["repo-truth.json: not added, changed, deleted or renamed"]);
   });
 
+  /** The subdirectory of a throwaway repository the cases below run the command in. */
+  const SUB = "pkg/inner";
+  const subKeep = { [SUB + "/keep.txt"]: "kept\n" };
+
+  /** One check run with the repository's subdirectory as the working directory. */
+  function runInSub(repo, name, ...more) {
+    const cwd = join(repo.dir, SUB);
+    assert.ok(existsSync(cwd), "the subdirectory exists in the repository");
+    return runCheck(cwd, repo, name, ...more);
+  }
+
+  function assertRt66InSub(repo, code, status, evidence, ...more) {
+    const { result, record } = runInSub(repo, "RT-66", ...more);
+    assert.equal(result.code, code, result.stderr + result.stdout);
+    assert.equal(record.status, status);
+    assert.deepEqual(record.evidence, evidence);
+  }
+
+  test("in a subdirectory, the top directory's repo-truth.json is read and named", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12"), "the built registry holds RT-12");
+    const repo = makeRepoWith({
+      baseFiles: { ...subKeep, "repo-truth.json": configText({ "RT-12": { maxBytes: 100 } }) },
+      added: { "big.txt": BIG },
+    });
+    const { result, doc, record } = runInSub(repo, "RT-12");
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(record.status, "fail");
+    assert.equal(doc.config, "repo-truth.json at " + repo.base.slice(0, 12));
+  });
+
+  test("in a subdirectory, a repo-truth.json of the subdirectory alone is not read", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12"), "the built registry holds RT-12");
+    const repo = makeRepoWith({
+      baseFiles: { ...subKeep, [SUB + "/repo-truth.json"]: configText({ "RT-12": { maxBytes: 100 } }) },
+      added: { "big.txt": BIG },
+    });
+    const { result, doc, record } = runInSub(repo, "RT-12");
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(record.status, "pass");
+    assert.equal(doc.config, null);
+  });
+
+  test("in a subdirectory, a relative --config is read against the subdirectory", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-12"), "the built registry holds RT-12");
+    const repo = makeRepoWith({
+      baseFiles: {
+        ...subKeep,
+        "repo-truth.json": configText({ "RT-12": { maxBytes: 100000 } }),
+        [SUB + "/repo-truth.json"]: configText({ "RT-12": { maxBytes: 100 } }),
+      },
+      added: { "big.txt": BIG },
+    });
+    const { result, doc, record } = runInSub(repo, "RT-12", "--config", "repo-truth.json");
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(record.status, "fail");
+    assert.equal(doc.config, "repo-truth.json");
+  });
+
+  test("in a subdirectory, RT-66 with no --config watches the top directory's repo-truth.json", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const baseFiles = {
+      ...subKeep,
+      "repo-truth.json": baseConfig,
+      [SUB + "/repo-truth.json"]: baseConfig,
+    };
+    const top = makeRepoWith({ baseFiles, added: { "repo-truth.json": otherConfig } });
+    assertRt66InSub(top, 1, "fail", ["repo-truth.json: config-changed"]);
+    const sub = makeRepoWith({ baseFiles, added: { [SUB + "/repo-truth.json"]: otherConfig } });
+    assertRt66InSub(sub, 0, "pass", ["repo-truth.json: not added, changed, deleted or renamed"]);
+  });
+
+  test("in a subdirectory, RT-66 with a relative --config watches the subdirectory's file", async () => {
+    const all = await start();
+    assert.ok(all.includes("RT-66"), "the built registry holds RT-66");
+    const repo = makeRepoWith({
+      baseFiles: {
+        ...subKeep,
+        "repo-truth.json": baseConfig,
+        [SUB + "/repo-truth.json"]: baseConfig,
+      },
+      added: { [SUB + "/repo-truth.json"]: otherConfig },
+    });
+    assertRt66InSub(repo, 1, "fail", [SUB + "/repo-truth.json: config-changed"], "--config", "repo-truth.json");
+  });
+
   test("cases ran, under the operating system's temporary directory", async () => {
     await start();
     assert.ok(ran > 0, "no case ran the built file");
