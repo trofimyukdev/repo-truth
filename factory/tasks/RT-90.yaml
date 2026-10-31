@@ -1,0 +1,199 @@
+id: RT-90
+repo: repo-truth
+priority: 27
+milestone: M0
+title: The Action's `base` input runs the checks over a range it names, on any event - a push, a merge queue, a scheduled or a manual run
+
+outcome: >
+  The goal says the Action runs the checks "over any range of commits".
+  Today it runs them over one range only: its step runs the command with
+  `--target` set to `origin/` and the pull request's base branch and
+  `--candidate` set to the pull request's head commit, both read from
+  `github.event.pull_request`. On any other event - a push, a merge
+  queue's `merge_group`, a `schedule`, a `workflow_dispatch` - that object
+  is absent, the two expand to `origin/` and the empty string, and the
+  command refuses `--target` outside a pull request (src/action.ts
+  `assertPullRequestEvent`: "name the range with --base instead"): the
+  Action ends with exit 2 and its job summary says the checks did not
+  run, and no input of the Action reaches `--base`. This task gives the
+  Action a fifth input, `base`, a revision, whose description names
+  `--base` and `--candidate`: when it is set the command runs over
+  `base..` the commit the run is for, on any event, so a push
+  workflow gives it `${{ github.event.before }}` and a merge queue
+  `${{ github.event.merge_group.base_sha }}`. An empty `base`, the
+  default, keeps the pull request's range exactly as it is.
+
+  How it reaches the command: by the road the other inputs take - one
+  `env` entry of the step that runs the command, `REPO_TRUTH_BASE`, whose
+  value is `${{ inputs.base }}`, read only by the program, never written
+  into a script. The program chooses the range, so the step's script
+  passes no range of its own: it runs
+  `exec node "$REPO_TRUTH_BIN" check`, and its `env` keeps
+  `REPO_TRUTH_TARGET` and `REPO_TRUTH_CANDIDATE` as they are; action.yml
+  then holds the text `--target` nowhere, and the two assertions of
+  test/unit/action.test.ts that read the old script as text change to
+  read the new one, as the not_done_if below says.
+  src/action.ts `actionArguments(argv, env)` returns `argv` as given,
+  then the range: when `env.REPO_TRUTH_BASE` is set and not empty,
+  `--base` and that value, then `--candidate` and `env.GITHUB_SHA` (the
+  commit the run is for, which the runner sets in every step's
+  environment), or `HEAD` when `GITHUB_SHA` is unset or empty; otherwise,
+  when `env.REPO_TRUTH_TARGET` is set (even empty), `--target` and its
+  value, then `--candidate` and `env.REPO_TRUTH_CANDIDATE` (the empty
+  string when unset); otherwise nothing - then the `--check`, `--except`,
+  `--format` and `--config` arguments as they are today. Each value is
+  one argument holding its text as written, never expanded, split or
+  run. The command keeps every rule it has: with `base` set the range is
+  `base..candidate` as `--base` reads it, a revision that names no commit
+  is a refusal with exit 2, and without `base` an event that is not a
+  pull request is still the command's exit 2 refusal of `--target`. The
+  README states the new input in a later task.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own and use the ones the file already declares.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces in src/action.ts
+  holds a construct its mutation catalogue always mutates, as the
+  not_done_if below says.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/action.test.ts
+
+not_done_if:
+  - "the `base` input is written into a `run` script as a `${{ }}` expression, or its value or `GITHUB_SHA` is expanded or run by a shell on its way to the command, instead of reaching it as one argument holding the text it is; or the step's script passes a range of its own"
+  - "with `REPO_TRUTH_BASE` set and not empty, `actionArguments` does not return `argv`, then `--base` and that value, then `--candidate` and `GITHUB_SHA` - or `HEAD` when `GITHUB_SHA` is unset or empty - then the other inputs' arguments in today's order, whatever `REPO_TRUTH_TARGET` and `REPO_TRUTH_CANDIDATE` hold; or `--target` is passed then"
+  - "with `REPO_TRUTH_BASE` unset or empty, `actionArguments` does not pass `--target` and `REPO_TRUTH_TARGET`, then `--candidate` and `REPO_TRUTH_CANDIDATE`, right after `argv` when `REPO_TRUTH_TARGET` is set - empty included; or passes any range argument when neither `REPO_TRUTH_BASE` nor `REPO_TRUTH_TARGET` is set; or the arguments of `checks`, `except`, `format` and `config` change"
+  - "run as a program with the environment action.yml's step gives it on a `push` event - `GITHUB_EVENT_NAME` `push`, `REPO_TRUTH_TARGET` `origin/`, `REPO_TRUTH_CANDIDATE` empty, `GITHUB_SHA` the pushed commit - and `REPO_TRUTH_BASE` the commit before it, `dist/action.js check` does not run the registered checks over exactly that range with the command's own exit code; or the same with `REPO_TRUTH_BASE` empty does not end with exit 2, nothing on stdout, the command's refusal on stderr and a job summary saying the checks did not run; or a `base` that names no commit does not end with exit 2 naming it"
+  - "action.yml does not declare the input `base`, not required, its default the empty string, its description naming `--base` and `--candidate` and saying that empty keeps the pull request's range; or its step that runs the command does not map it as `REPO_TRUTH_BASE: ${{ inputs.base }}`, or does not run exactly `exec node \"$REPO_TRUTH_BIN\" check`; or the inputs `checks`, `except`, `format` or `config` become required or change their defaults, or the env entries `REPO_TRUTH_TARGET`, `REPO_TRUTH_CANDIDATE`, `REPO_TRUTH_BIN`, `REPO_TRUTH_CHECKS`, `REPO_TRUTH_EXCEPT`, `REPO_TRUTH_FORMAT`, `REPO_TRUTH_CONFIG` or the step that builds change"
+  - "a test of test/unit/action.test.ts at the merge base is deleted, renamed, skipped, focused or made to ask less - a line holding an `expect(` it holds removed or rewritten among them, but for the two lines that assert the step's old script text - `expect(text).toContain(\"check --target\")` in the test `is a composite action that calls the command with --target and --candidate`, and the assertion that the script holds `node \"$REPO_TRUTH_BIN\" check --target ...` in the test `hands each input to the step through one env entry and never into a script` - which are rewritten to assert the script this task writes and nothing else; or action.yml holds the text `--target` anywhere, a comment included"
+  - "no line of code the task adds or replaces in src/action.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but action.yml, src/action.ts and test/unit/action.test.ts, or does not change both action.yml and src/action.ts; action.yml is not valid YAML; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const a = await import("./dist/action.js"); const s = (v) => JSON.stringify(v); const v = a.actionArguments(["check"], { REPO_TRUTH_BASE: "abc", GITHUB_SHA: "def", REPO_TRUTH_TARGET: "origin/", REPO_TRUTH_CANDIDATE: "", REPO_TRUTH_EXCEPT: "RT-03", REPO_TRUTH_FORMAT: "json" }); const h = a.actionArguments(["check"], { REPO_TRUTH_BASE: "abc" }); const p = a.actionArguments(["check"], { REPO_TRUTH_BASE: "", REPO_TRUTH_TARGET: "origin/main", REPO_TRUTH_CANDIDATE: "f00", REPO_TRUTH_CHECKS: "RT-01" }); const n = a.actionArguments(["check", "--base", "x", "--candidate", "y"], { REPO_TRUTH_FORMAT: "text" }); process.exitCode = Number(s(v) !== s(["check", "--base", "abc", "--candidate", "def", "--except", "RT-03", "--format", "json"]) || s(h) !== s(["check", "--base", "abc", "--candidate", "HEAD"]) || s(p) !== s(["check", "--target", "origin/main", "--candidate", "f00", "--check", "RT-01"]) || s(n) !== s(["check", "--base", "x", "--candidate", "y", "--format", "text"]))'''
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const prog = resolve("dist/action.js"); const t = mkdtempSync(join(tmpdir(), "rt90-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); writeFileSync(join(d, "a.txt"), "a\n"); g("add", "-A"); g("commit", "-q", "-m", "base"); const before = g("rev-parse", "HEAD"); writeFileSync(join(d, "b.txt"), "b\n"); g("add", "-A"); g("commit", "-q", "-m", "push"); const sha = g("rev-parse", "HEAD"); const f = join(t, "summary.md"); const go = (base) => spawnSync(process.execPath, [prog, "check"], { cwd: d, encoding: "utf8", env: { ...process.env, GITHUB_EVENT_NAME: "push", GITHUB_SHA: sha, REPO_TRUTH_TARGET: "origin/", REPO_TRUTH_CANDIDATE: "", REPO_TRUTH_BASE: base, REPO_TRUTH_CHECKS: "RT-01", REPO_TRUTH_FORMAT: "json", GITHUB_STEP_SUMMARY: f } }); const r1 = go(before); const r2 = go(""); let s = ""; try { s = readFileSync(f, "utf8"); } catch {} rmSync(t, { recursive: true, force: true }); let doc = null; try { doc = JSON.parse(r1.stdout); } catch {} process.exitCode = Number(!(doc && doc.base === before && doc.candidate === sha && Array.isArray(doc.records) && doc.records.length === 1 && doc.records[0].name === "RT-01" && r1.status === (doc.records[0].status === "fail" ? 1 : 0) && r2.status === 2 && r2.stdout === "" && r2.stderr.includes("push") && s.includes("push") && s.includes("The checks did not run (exit code 2).")))'''
+    required: true
+  - type: behavior
+    statement: >
+      action.yml declares a fifth input, `base`: it is not required, its
+      default is the empty string, and its description names `--base` and
+      `--candidate`, says the checks then run over the range from that revision to the
+      commit the run is for, on any event, and that empty keeps the pull
+      request's range. The step that runs the command maps it through one
+      `env` entry, `REPO_TRUTH_BASE`, whose value is exactly
+      `${{ inputs.base }}`; no other step names it; its script is exactly
+      `exec node "$REPO_TRUTH_BIN" check`; no `run` script of action.yml
+      holds a `${{` expression. The same step's `env` still sets
+      `REPO_TRUTH_TARGET` to `origin/${{ github.event.pull_request.base.ref }}`,
+      `REPO_TRUTH_CANDIDATE` to `${{ github.event.pull_request.head.sha }}`,
+      `REPO_TRUTH_BIN` to `${{ github.action_path }}/dist/action.js`, and
+      `REPO_TRUTH_CHECKS`, `REPO_TRUTH_EXCEPT`, `REPO_TRUTH_FORMAT` and
+      `REPO_TRUTH_CONFIG` to the inputs `checks`, `except`, `format` and
+      `config`; those four inputs are not required, and their defaults are
+      the empty string for `checks`, `except` and `config` and `text` for
+      `format`; the step that builds runs `npm ci && npm run build` in
+      `${{ github.action_path }}`.
+  - type: behavior
+    statement: >
+      src/action.ts `actionArguments(argv, env)` returns `argv` as given,
+      then the range as the outcome says (`--base` and
+      `REPO_TRUTH_BASE`, then `--candidate` and `GITHUB_SHA` or `HEAD`,
+      when `REPO_TRUTH_BASE` is set and not empty; else `--target` and
+      `REPO_TRUTH_TARGET`, then `--candidate` and `REPO_TRUTH_CANDIDATE`,
+      when `REPO_TRUTH_TARGET` is set; else nothing), then the `--check`,
+      `--except`, `--format` and `--config` arguments as before, each value
+      one argument holding its text as written; its doc comment says so.
+      Run as a program, `dist/action.js` exits with the code the command
+      answers: the fourth command item above runs a push event's
+      environment with a `base` and without one through the built program.
+  - type: behavior
+    statement: >
+      Tests in test/unit/action.test.ts: `actionArguments` with
+      `REPO_TRUTH_BASE` set (with `GITHUB_SHA` set, unset and empty; beside
+      a set `REPO_TRUTH_TARGET`; beside every other input; holding shell
+      characters), empty and unset (with `REPO_TRUTH_TARGET` set, set to
+      `origin/`, and unset), each asserting the whole array it returns;
+      action.yml read as text, asserting the `base` input, its default,
+      the word its description names, its `env` entry and the step's
+      script; `runAction` over a throwaway repository with a push event's
+      environment and a `base`, asserting that the checks run over exactly
+      `base..GITHUB_SHA`, with the same environment and no `base`, asserting
+      exit 2 and a summary that says the checks did not run, and with a
+      `base` that names no commit, asserting exit 2. The test `is a
+      composite action that calls the command with --target and
+      --candidate` asserts that action.yml's text holds `using: composite`,
+      `exec node "$REPO_TRUTH_BIN" check`, `--candidate`,
+      `github.event.pull_request.head.sha` and
+      `origin/${{ github.event.pull_request.base.ref }}`; the test `hands
+      each input to the step through one env entry and never into a
+      script` asserts the env entries of `checks` and `format`, that no
+      `run` line holds `${{`, that the step's script holds
+      `exec node "$REPO_TRUTH_BIN" check` and neither `REPO_TRUTH_CHECKS`
+      nor `REPO_TRUTH_FORMAT`, and that the text holds `/dist/action.js`
+      and `npm ci && npm run build`. Fixtures are built
+      under the operating system's temporary directory and removed when the
+      suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-90.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - action.yml
+  - src/action.ts
+  - test/unit/action.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - repo-truth.json
+  - src/cli.ts
+  - src/config.ts
+  - src/registry.ts
+  - src/index.ts
+  - src/checks/**
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:action]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

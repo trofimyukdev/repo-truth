@@ -76,6 +76,8 @@ passes over this README's own figures from the root commit.
   directory's repo-truth.json and reads a relative `--config` against the subdirectory (RT-85).
 - The Action's `except` input reaches the command as `--except`, so a workflow leaves out a check
   without naming all the others (RT-86).
+- The Action's `base` input runs the checks over the range from that revision to the commit the
+  run is for, on any event - a push, a merge queue, a scheduled or a manual run (RT-90).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 
