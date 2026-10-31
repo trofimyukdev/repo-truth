@@ -1,0 +1,176 @@
+id: RT-88
+repo: repo-truth
+priority: 26
+milestone: M0
+title: Unpinned actions - a `uses:` reference the range adds to a workflow or an action that names a tag or a branch instead of a full commit id
+
+outcome: >
+  A workflow step's `uses: owner/repo@v4` runs whatever commit the tag
+  `v4` names on the day the job runs: the owner of that repository, or
+  anyone who takes it over, changes the code the job runs - with the job's
+  token and secrets - without a line of this repository changing. A
+  reference pinned to a full commit id (`@` and forty hexadecimal digits)
+  cannot move. RT-56 reads workflows for lines that let a failing job
+  pass, and RT-18 reads package manifests for dependency sources; no
+  registered check reads what a `uses:` line names. This task adds a
+  check, RT-88, a module of the check directory
+  (src/checks/action-pins.ts, no edit of src/registry.ts), that fails a
+  range which adds an unpinned `uses:` reference, naming the file and the
+  reference, unless the reference's owner is one the configuration allows
+  or a commit message of the range sanctions it.
+
+  Which files: every workflow file the range adds, changes or renames
+  onto - `.github/workflows/<name>.yml` or `.yaml` directly in that
+  directory, RT-56's rule - and
+  every file named `action.yml` or `action.yaml` at any depth, read whole
+  through git at the merge base of `base` and `candidate` and at
+  `candidate`, never from the working tree. The YAML is not parsed: a
+  `uses:` line is a line whose text, white space at both ends removed,
+  opens `uses:` or `- uses:`, its value the rest of the line with, in this
+  order, a trailing comment (a `#` after white space, to the end of the
+  line) removed, then white space at both ends, then one pair of matching
+  surrounding quotes. A `uses:` line is added when the candidate's file
+  holds its text, white space at both ends removed (its `- `, its quotes
+  and its comment kept), more often than the source file held it - the
+  source file being the file at the merge base, the one a rename came
+  from, or none for a file the range adds; a line moved or re-indented is
+  not, and a text added more than once is one finding.
+
+  What is pinned: a local reference (opening `./`), a `docker://` image
+  given by digest (`@sha256:` and sixty-four hexadecimal digits), and a
+  repository reference `<owner>/<repo>[/<path>]@<commit>` whose commit is
+  exactly forty hexadecimal digits, of either case. Every value that is
+  neither local nor `docker://` is a repository reference, its owner the
+  text before its first `/`. Every other value - a tag, a branch, no `@`,
+  a short commit id, a `docker://` image by tag - is unpinned. Each added
+  unpinned line is a finding `unpinned-action` of its file, one evidence
+  line `<file>: unpinned-action <value>`, the value as read; a sanctioned
+  one ends ` - sanctioned: <reason>`. A finding's id is
+  `unpinned-action:<file>`, sanctioned by a
+  `Sanctioned-Weakening: <id> <reason>` line in a commit message of the
+  range or by the caller's `sanctions`, the form
+  src/checks/script-changes.ts and src/checks/workflow-weakening.ts state
+  in their headers. The check declares one option, `allowedOwners`
+  (strings, by `optionKinds`): a repository reference whose owner - the
+  text before its first `/` - is one of them, compared exactly, yields no
+  finding; `docker://` and local references are judged as above whatever
+  the option says. A range with no finding is a `pass` whose one evidence
+  line is `no unpinned action reference added`.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/action-pins.test.ts
+
+creates_test_files:
+  - test/unit/action-pins.test.ts
+
+not_done_if:
+  - "a range that adds to a workflow file a `uses:` line naming a tag, a branch, no `@` at all, a commit id shorter than forty hexadecimal digits, or a `docker://` image by tag leaves RT-88's record anything but `fail` with the evidence line `<file>: unpinned-action <value>` - in a `- uses:` line and a `uses:` line, quoted or not, with a trailing comment or not"
+  - "a reference pinned to forty hexadecimal digits, a local `./` reference, or a `docker://` image by `@sha256:` digest is a finding; or a range that adds none of the unpinned forms is anything but `pass` with the one evidence line `no unpinned action reference added`"
+  - "a file named `action.yml` or `action.yaml` at any depth is not read as a workflow file is; or a file outside `.github/workflows/` that is not so named is read"
+  - "an unpinned line the merge base's file already holds as often, moved or re-indented, is a finding; or a workflow file the range adds whole, or renames onto a workflow path, is not read"
+  - "`allowedOwners` does not quiet a repository reference whose owner it names exactly, quiets another owner or a `docker://` reference, or is not declared by `optionKinds` as `{ allowedOwners: \"strings\" }`; or a configuration file giving it is not read by the command"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: unpinned-action:<file> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another file, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - a line the other side added after the merge base is a finding, or the working tree is read; a revision that names no commit, or a git that fails, yields anything but a `fail` record naming the cause, or the check throws"
+  - "`repo-truth list` does not name RT-88 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/action-pins.test.ts is not a file the task adds"
+  - "the task changes any file but src/checks/action-pins.ts and test/unit/action-pins.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action-pins.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-88)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const t = mkdtempSync(join(tmpdir(), "rt88-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); mkdirSync(join(d, ".github/workflows"), { recursive: true }); const w = join(d, ".github/workflows/ci.yml"); writeFileSync(w, "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n"); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); writeFileSync(w, "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: someone/tool@v1\n      - run: echo\n"); g("commit", "-q", "-am", "add"); const run = (...more) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-88", "--base", base, "--candidate", "HEAD", "--format", "json", ...more], { cwd: d, encoding: "utf8" }); const r1 = run(); writeFileSync(join(t, "c.json"), JSON.stringify({ schema: "repo-truth.config/v1", checks: { "RT-88": { allowedOwners: ["someone"] } } })); const r2 = run("--config", join(t, "c.json")); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const b = rec(r2); process.exitCode = Number(!(r1.status === 1 && a && a.name === "RT-88" && a.status === "fail" && a.evidence.some((e) => e.startsWith(".github/workflows/ci.yml: unpinned-action") && e.includes("someone/tool@v1")) && r2.status === 0 && b && b.status === "pass"))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/action-pins.ts is a module of the check directory: it
+      exports `name`, which is "RT-88", `check`, and `optionKinds`, which
+      is `{ allowedOwners: "strings" }`. Its header comment says which
+      files it reads (workflow files, and `action.yml` or `action.yaml` at
+      any depth), what a `uses:` line is and that the YAML is not parsed,
+      which references are pinned, the option, the id form
+      `unpinned-action:<file>` and the `Sanctioned-Weakening:` line that
+      sanctions a finding. `check` returns a record and never throws: the
+      fourth command item above runs an added unpinned reference, and the
+      same range with `allowedOwners` naming its owner, through the built
+      command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/action-pins.test.ts call `check` over throwaway
+      repositories and assert the whole record it returns: a range that
+      adds a reference by tag, one by branch, one with no `@`, one by a
+      short commit id and a `docker://` image by tag, each as a `- uses:`
+      and a `uses:` line, quoted and with a trailing comment; one that adds
+      a reference by forty hexadecimal digits, a local `./` reference and a
+      `docker://` image by digest; an `action.yml` in a subdirectory and a
+      `.yml` file outside `.github/workflows/` that is not so named; an
+      unpinned line the merge base already holds, moved and re-indented; a
+      workflow added whole and one renamed onto a workflow path;
+      `allowedOwners` naming the owner, naming another, and beside a
+      `docker://` reference; a finding sanctioned by a commit message line,
+      one by the caller's `sanctions`, and a line that names another file;
+      a range whose other side added a line after the merge base; and a
+      revision that names no commit. Fixtures are built under the
+      operating system's temporary directory and removed when the suite
+      ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-88.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/action-pins.ts
+  - test/unit/action-pins.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:action-pins]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
