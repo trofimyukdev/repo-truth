@@ -245,7 +245,7 @@ describe("action.yml", () => {
 
   it("is a composite action that calls the command with --target and --candidate", () => {
     expect(text).toMatch(/using:\s*composite/);
-    expect(text).toContain("check --target");
+    expect(text).toContain('exec node "$REPO_TRUTH_BIN" check');
     expect(text).toContain("--candidate");
     expect(text).toContain("github.event.pull_request.head.sha");
     expect(text).toContain("origin/${{ github.event.pull_request.base.ref }}");
@@ -271,7 +271,7 @@ describe("action.yml", () => {
     expect(text).toMatch(/^ {8}REPO_TRUTH_FORMAT: \$\{\{ inputs\.format \}\}$/m);
     for (const line of text.split("\n").filter((l) => /^\s+run:/.test(l))) expect(line).not.toContain("${{");
     const script = text.slice(text.indexOf("run: |"));
-    expect(script).toContain('node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"');
+    expect(script).toContain('exec node "$REPO_TRUTH_BIN" check');
     expect(script).not.toContain("REPO_TRUTH_CHECKS");
     expect(script).not.toContain("REPO_TRUTH_FORMAT");
     expect(text).toContain("/dist/action.js");
@@ -347,6 +347,112 @@ describe("actionArguments", () => {
   it("keeps a path holding a space and shell characters as one argument", () => {
     const path = "my dir/$(id);`id` 'q' \"d\" *.json";
     expect(actionArguments(base, { REPO_TRUTH_CONFIG: path })).toEqual([...base, "--config", path]);
+  });
+});
+
+describe("the base input", () => {
+  const text = readFileSync(join(__dirname, "..", "..", "action.yml"), "utf8");
+  const inputs = text.slice(text.indexOf("\ninputs:"), text.indexOf("\nruns:"));
+  const input = inputs.slice(inputs.indexOf("  base:"));
+  const argv = ["check"];
+
+  it("is declared optional, empty by default, naming --base and --candidate", () => {
+    expect(input).toMatch(/required: false/);
+    expect(input).toMatch(/default: ""/);
+    expect(input).toContain("--base");
+    expect(input).toContain("--candidate");
+    expect(input).toMatch(/Empty keeps the pull request's range/);
+  });
+
+  it("reaches the step through one env entry, and the script passes no range", () => {
+    expect(text.match(/REPO_TRUTH_BASE/g)).toHaveLength(1);
+    expect(text).toMatch(/^ {8}REPO_TRUTH_BASE: \$\{\{ inputs\.base \}\}$/m);
+    expect(text).not.toContain("--target");
+    expect(text).toMatch(/^ {8}exec node "\$REPO_TRUTH_BIN" check$/m);
+  });
+
+  it("passes --base and the commit of the run, whatever the target and candidate hold", () => {
+    const env = { REPO_TRUTH_BASE: "abc", GITHUB_SHA: "def", REPO_TRUTH_TARGET: "origin/", REPO_TRUTH_CANDIDATE: "" };
+    expect(actionArguments(argv, env)).toEqual(["check", "--base", "abc", "--candidate", "def"]);
+    expect(actionArguments(argv, { ...env, REPO_TRUTH_EXCEPT: "A", REPO_TRUTH_FORMAT: "json", REPO_TRUTH_CONFIG: "c" })).toEqual([
+      "check", "--base", "abc", "--candidate", "def", "--except", "A", "--format", "json", "--config", "c",
+    ]);
+  });
+
+  it("falls back to HEAD when GITHUB_SHA is unset or empty", () => {
+    const want = ["check", "--base", "abc", "--candidate", "HEAD"];
+    expect(actionArguments(argv, { REPO_TRUTH_BASE: "abc" })).toEqual(want);
+    expect(actionArguments(argv, { REPO_TRUTH_BASE: "abc", GITHUB_SHA: "" })).toEqual(want);
+  });
+
+  it("keeps shell characters as one argument", () => {
+    expect(actionArguments(argv, { REPO_TRUTH_BASE: "$(id);`x` *", GITHUB_SHA: "'q' $y" })).toEqual([
+      "check", "--base", "$(id);`x` *", "--candidate", "'q' $y",
+    ]);
+  });
+
+  it("keeps the pull request's range when empty or unset", () => {
+    expect(actionArguments(argv, { REPO_TRUTH_BASE: "", REPO_TRUTH_TARGET: "origin/main", REPO_TRUTH_CANDIDATE: "f00" })).toEqual([
+      "check", "--target", "origin/main", "--candidate", "f00",
+    ]);
+    expect(actionArguments(argv, { REPO_TRUTH_TARGET: "origin/", GITHUB_SHA: "d" })).toEqual([
+      "check", "--target", "origin/", "--candidate", "",
+    ]);
+    expect(actionArguments(argv, { REPO_TRUTH_BASE: "", GITHUB_SHA: "d" })).toEqual(["check"]);
+  });
+
+  describe("through runAction on a push event", () => {
+    let repo: string;
+    let before: string;
+    let sha: string;
+
+    beforeAll(() => {
+      repo = newRepo();
+      before = commit(repo, "a.txt", "1\n", "before");
+      sha = commit(repo, "b.txt", "2\n", "push");
+    });
+
+    const act = async (env: Record<string, string | undefined>) => {
+      let stdout = "";
+      let stderr = "";
+      const full = { GITHUB_EVENT_NAME: "push", REPO_TRUTH_TARGET: "origin/", REPO_TRUTH_CANDIDATE: "", ...env };
+      const code = await runAction(["check", "--no-fetch", "--format", "json"], full, {
+        cwd: repo,
+        env: full,
+        stdout: (t) => void (stdout += t),
+        stderr: (t) => void (stderr += t),
+      });
+      return { code, stdout, stderr };
+    };
+
+    it("runs the checks over exactly base..GITHUB_SHA", async () => {
+      useRegistry(stub("A", "pass"));
+      const r = await act({ REPO_TRUTH_BASE: before, GITHUB_SHA: sha });
+      expect(r.code).toBe(EXIT_OK);
+      const doc = JSON.parse(r.stdout);
+      expect(doc.base).toBe(before);
+      expect(doc.candidate).toBe(sha);
+    });
+
+    it("is exit 2 with a summary saying the checks did not run when base is empty", async () => {
+      const calls: string[] = [];
+      useRegistry(stub("A", "pass", calls));
+      const file = join(root, `base-summary-${counter++}.md`);
+      const r = await act({ REPO_TRUTH_BASE: "", GITHUB_SHA: sha, GITHUB_STEP_SUMMARY: file });
+      expect(r.code).toBe(EXIT_BAD_INVOCATION);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("push");
+      expect(readFileSync(file, "utf8")).toContain("The checks did not run (exit code 2).");
+      expect(calls).toEqual([]);
+    });
+
+    it("is exit 2 naming a base that names no commit", async () => {
+      useRegistry(stub("A", "pass"));
+      const r = await act({ REPO_TRUTH_BASE: "no-such-revision", GITHUB_SHA: sha });
+      expect(r.code).toBe(EXIT_BAD_INVOCATION);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("no-such-revision");
+    });
   });
 });
 
