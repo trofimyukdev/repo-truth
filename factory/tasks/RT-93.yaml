@@ -1,0 +1,170 @@
+id: RT-93
+repo: repo-truth
+priority: 26
+milestone: M0
+title: Bidirectional controls - a line the range adds that holds a Unicode bidirectional control character, which makes code read one way to a reviewer and run another
+
+outcome: >
+  Nine Unicode characters - U+202A, U+202B, U+202C, U+202D, U+202E (the
+  embeddings and overrides) and U+2066, U+2067, U+2068, U+2069 (the
+  isolates) - reorder the text around them when it is shown, and do
+  nothing when a compiler reads it. A line of code holding them can show a
+  reviewer a comment where the compiler sees a statement, or a closed
+  string where it sees an open one (CVE-2021-42574, "Trojan Source"); the
+  diff a reviewer reads shows the reordered text too. No registered check
+  reads the characters of a line: today a range that adds such a line to
+  a source file passes every check. This task adds a check, RT-93, a
+  module of the check directory (src/checks/bidi-controls.ts, no edit of
+  src/registry.ts), that fails a range which adds a line holding one of
+  the nine, naming the file and the characters, unless a commit message
+  of the range sanctions it.
+
+  Which files: every path the range adds, changes, or renames onto whose
+  entry at `candidate` is a regular file (mode 100644 or 100755) - a
+  symbolic link or a gitlink is never read - read whole through git at the
+  merge base of `base` and `candidate` and at `candidate`, renames
+  detected, never from the working tree. A file holding a NUL byte is not
+  text and is not read, at either end: such a candidate yields nothing,
+  and such a source counts as none. A file's text is read as UTF-8 and
+  split at line feeds, one carriage return at a line's end dropped. A line
+  is added when the candidate's file holds its text, white space at both
+  ends removed, more often than the source file held it - the source file
+  being the file at the merge base, the one a rename came from, or none
+  for a file the range adds or one whose entry at the merge base was not a
+  regular file; a line moved or re-indented is not added, and a text added
+  more than once counts once.
+
+  What a finding is: one finding `bidi-control` per file whose added lines
+  hold at least one of the nine characters, its one evidence line
+  `<file>: bidi-control <characters>` - each distinct character those
+  added lines hold, written `U+` and four upper-case hexadecimal digits,
+  in ascending order, joined by a comma and nothing else (for example
+  `src/a.ts: bidi-control U+202E,U+2066`). No evidence line holds a
+  character outside printable ASCII: the file name is escaped as the
+  other checks of the directory escape theirs. A sanctioned finding's line
+  ends ` - sanctioned: <reason>`. A finding's id is `bidi-control:<file>`,
+  sanctioned by a `Sanctioned-Weakening: <id> <reason>` line in a commit
+  message of the range or by the caller's `sanctions`, the form
+  src/checks/script-changes.ts and src/checks/workflow-weakening.ts state
+  in their headers. The check declares no options. A range with no finding
+  is a `pass` whose one evidence line is
+  `no bidirectional control character added`.
+
+  The project_truth rung runs this package's own checks over the change -
+  this one among them, once it lands - and RT-24, which reports a timeout
+  setting a range adds to a test file the merge base holds; so neither the
+  module nor the tests this task adds hold any of the nine characters as
+  a character (each is written as an escape, such as `\u202e`, in the
+  source), and the tests set no timeout of their own.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/bidi-controls.test.ts
+
+creates_test_files:
+  - test/unit/bidi-controls.test.ts
+
+not_done_if:
+  - "a range that adds to a file a line holding any one of U+202A, U+202B, U+202C, U+202D, U+202E, U+2066, U+2067, U+2068 or U+2069 leaves RT-93's record anything but `fail` with the evidence line `<file>: bidi-control <characters>` - each distinct character of the file's added lines, `U+` and four upper-case hexadecimal digits, ascending, joined by a comma - in a file the range adds and in one it changes, at the top directory and below it"
+  - "a line holding none of the nine is a finding - among them U+200E, U+200F, U+061C, U+200B, U+200D, U+FEFF and right-to-left text; or a range that adds none of the nine is anything but `pass` with the one evidence line `no bidirectional control character added`"
+  - "a line holding one of the nine that the merge base's file already holds as often, moved or re-indented, is a finding, or one removed is; or a file renamed onto a new path is read against anything but the rename's source; or a file holding a NUL byte, a symbolic link or a gitlink is read"
+  - "a file with more than one added line holding the nine yields more than one finding, or its line names a character its added lines do not hold, or names one twice, or out of order"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: bidi-control:<file> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another file, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - a line the other side added after the merge base is a finding, or the working tree is read; a revision that names no commit, or a git that fails, yields anything but a `fail` record naming the cause, or the check throws; or the module exports `optionKinds`; or an evidence line holds a character outside printable ASCII"
+  - "`repo-truth list` does not name RT-93 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/bidi-controls.test.ts is not a file the task adds; or src/checks/bidi-controls.ts or test/unit/bidi-controls.test.ts holds one of the nine characters as a character"
+  - "the task changes any file but src/checks/bidi-controls.ts and test/unit/bidi-controls.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/bidi-controls.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-93)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const own = ["src/checks/bidi-controls.ts", "test/unit/bidi-controls.test.ts"].every((f) => !/[\u202a-\u202e\u2066-\u2069]/.test(readFileSync(f, "utf8"))); const t = mkdtempSync(join(tmpdir(), "rt93-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); mkdirSync(join(d, "src")); writeFileSync(join(d, "src/a.ts"), "export const a = 1;\n"); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); writeFileSync(join(d, "src/a.ts"), "export const a = 1; /*\u2066 x \u2069*/\n/*\u202e*/\n"); g("commit", "-q", "-am", "add"); const run = (b) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-93", "--base", b, "--candidate", "HEAD", "--format", "json"], { cwd: d, encoding: "utf8" }); const r1 = run(base); const r2 = run("HEAD"); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const b = rec(r2); process.exitCode = Number(!(own && r1.status === 1 && a && a.name === "RT-93" && a.status === "fail" && a.evidence.length === 1 && a.evidence[0] === "src/a.ts: bidi-control U+202E,U+2066,U+2069" && r2.status === 0 && b && b.status === "pass"))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/bidi-controls.ts is a module of the check directory: it
+      exports `name`, which is "RT-93", and `check`, and no `optionKinds`.
+      Its header comment names the nine characters by their code points,
+      says which files it reads (regular files only, no file holding a NUL
+      byte), when a line is added, that a file yields one finding naming
+      its characters, the id form `bidi-control:<file>` and the
+      `Sanctioned-Weakening:` line that sanctions a finding. `check`
+      returns a record and never throws: the fourth command item above
+      runs an added line holding three of the nine, and an empty range,
+      through the built command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/bidi-controls.test.ts call `check` over throwaway
+      repositories and assert the whole record it returns: a range that
+      adds a line holding each of the nine characters, in a file it adds
+      and in one it changes, at the top directory and in a subdirectory;
+      a file whose added lines hold several of them, one twice, given in
+      descending order; lines holding U+200E, U+200F, U+061C, U+200B,
+      U+200D, U+FEFF and right-to-left letters; a line holding one of the
+      nine that the merge base already holds, moved and re-indented, and
+      one removed; a file renamed onto a new path holding its source's
+      line, and one gaining a line as it moves; a file holding a NUL byte,
+      a symbolic link whose target holds one of the nine, and a gitlink; a
+      finding sanctioned by a commit message line, one by the caller's
+      `sanctions`, and a line that names another file; a range whose other
+      side added such a line after the merge base; and a revision that
+      names no commit. Each of the nine is written in the test file as an
+      escape, never as the character. Fixtures are built under the
+      operating system's temporary directory and removed when the suite
+      ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-93.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/bidi-controls.ts
+  - test/unit/bidi-controls.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:bidi-controls]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
