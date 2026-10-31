@@ -17,6 +17,10 @@ inputs:
     description: "A path passed to the command as --config, read in place of repo-truth.json at the pull request's merge base. A relative path is read against the step's working directory. The file is read from the checked-out tree, which in a pull request is the pull request's own copy, so this does not hold the pull request to the settings of its base; the default, empty, does. Empty passes nothing."
     required: false
     default: ""
+  base:
+    description: "A revision passed to the command as --base. When it is set, the checks run over the range from that revision to the commit the run is for, passed as --candidate, on any event: a push, a merge queue, a scheduled or a manual run. Empty keeps the pull request's range."
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -34,5 +38,6 @@ runs:
         REPO_TRUTH_EXCEPT: ${{ inputs.except }}
         REPO_TRUTH_FORMAT: ${{ inputs.format }}
         REPO_TRUTH_CONFIG: ${{ inputs.config }}
+        REPO_TRUTH_BASE: ${{ inputs.base }}
       run: |
-        exec node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"
+        exec node "$REPO_TRUTH_BIN" check

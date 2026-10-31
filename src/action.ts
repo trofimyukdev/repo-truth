@@ -79,12 +79,23 @@ export async function resolveMergeBase(cwd: string, target: string, candidate: s
  * `--check <name>` per name in `env.REPO_TRUTH_CHECKS` (split at white space and
  * commas), then one `--except <name>` per name in `env.REPO_TRUTH_EXCEPT` (split
  * the same way), then `--format <format>` when `env.REPO_TRUTH_FORMAT` is set, then
- * `--config <path>` when `env.REPO_TRUTH_CONFIG` is set and not empty. Nothing
+ * `--config <path>` when `env.REPO_TRUTH_CONFIG` is set and not empty. The range
+ * comes right after `argv`: `--base <env.REPO_TRUTH_BASE>` and `--candidate
+ * <env.GITHUB_SHA>` (`HEAD` when unset or empty) when `env.REPO_TRUTH_BASE` is set
+ * and not empty; else `--target <env.REPO_TRUTH_TARGET>` and `--candidate
+ * <env.REPO_TRUTH_CANDIDATE>` when `env.REPO_TRUTH_TARGET` is set; else none. Nothing
  * is run, expanded or matched: every name, and the path, is one argument, as
  * written.
  */
 export function actionArguments(argv: readonly string[], env: Readonly<Record<string, string | undefined>>): string[] {
   const out = [...argv];
+  const base = env.REPO_TRUTH_BASE;
+  const sha = env.GITHUB_SHA;
+  if (base !== undefined && base !== "") {
+    out.push("--base", base, "--candidate", sha !== undefined && sha !== "" ? sha : "HEAD");
+  } else if (env.REPO_TRUTH_TARGET !== undefined) {
+    out.push("--target", env.REPO_TRUTH_TARGET, "--candidate", env.REPO_TRUTH_CANDIDATE ?? "");
+  }
   for (const name of (env.REPO_TRUTH_CHECKS ?? "").split(/[\s,]+/)) {
     if (name !== "") out.push("--check", name);
   }
