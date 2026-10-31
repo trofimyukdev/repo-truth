@@ -1,0 +1,172 @@
+id: RT-94
+repo: repo-truth
+priority: 23
+milestone: M0
+title: Install scripts - a package the range adds to an npm lockfile whose entry says it runs an install script
+
+outcome: >
+  `npm ci` and `npm install` run a package's `preinstall`, `install` and
+  `postinstall` scripts on the machine that installs it - a developer's,
+  or the CI job's with its token - and npm's lockfile says which packages
+  have one: in `package-lock.json` and `npm-shrinkwrap.json` (lockfile
+  versions 2 and 3) the entry of such a package under `packages` holds
+  `"hasInstallScript": true`. A range that adds such a package passes
+  every registered check today: RT-06 compares the lockfile with the
+  manifest by object id, and RT-18 reads only where a dependency is
+  resolved from. This task adds a check, RT-94, a module of the check
+  directory (src/checks/install-scripts.ts, no edit of src/registry.ts),
+  that fails a range which adds a package that runs an install script,
+  naming the lockfile and the package, unless a commit message of the
+  range sanctions it.
+
+  Which files: every path the range adds, changes or renames onto whose
+  last path segment is, exactly, `package-lock.json` or
+  `npm-shrinkwrap.json`, at any depth, read whole through git at the
+  merge base of `base` and `candidate` and at `candidate`, renames
+  detected, never from the working tree, and read with `JSON.parse`. The
+  source file is the file at the merge base, the one a rename came from,
+  or none for a file the range adds; a source that is none, or whose
+  document holds no `packages` object, holds no flagged key, so every
+  flagged key of the candidate is then a finding.
+
+  What a finding is: each key of the candidate's `packages` object whose
+  entry is an object holding `hasInstallScript` equal to `true`, when the
+  source's `packages` does not hold that key with an entry whose
+  `hasInstallScript` is `true`. So a package added with an install script,
+  and one already present whose new version gains one, are findings; one
+  whose entry was already flagged under the same key - whatever its
+  version - is not, and neither is a flagged package the range removes. A
+  lockfile of version 1, which has no `packages` object, yields nothing.
+  Each finding is one evidence line
+  `<file>: install-script <key>@<version>` - the key as the lockfile
+  writes it (such as `node_modules/esbuild` or
+  `node_modules/a/node_modules/b`), and the entry's `version` when it is
+  a string, or `<file>: install-script <key>` when it is not; a
+  sanctioned one ends ` - sanctioned: <reason>`; the lines come in no
+  particular order. A candidate lockfile that `JSON.parse` refuses is a
+  `fail` record naming the file, and so is such a source; never a pass,
+  never a throw. A finding's id is `install-script:<file>`, which
+  sanctions every finding of that file, by a
+  `Sanctioned-Weakening: <id> <reason>` line in a commit message of the
+  range or by the caller's `sanctions`, the form
+  src/checks/script-changes.ts and src/checks/workflow-weakening.ts state
+  in their headers. The check declares no options. A range with no
+  finding is a `pass` whose one evidence line is
+  `no install script added`.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds, and RT-26, which reports a line in a
+  credential's form; so the tests this task adds set no timeout of their
+  own, and their fixtures hold no text in a form RT-26 reports.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/install-scripts.test.ts
+
+creates_test_files:
+  - test/unit/install-scripts.test.ts
+
+not_done_if:
+  - "a range that adds to a `package-lock.json` or an `npm-shrinkwrap.json`, at the top directory or below it, a `packages` entry holding `\"hasInstallScript\": true` - a direct dependency and a nested one - leaves RT-94's record anything but `fail` with the evidence line `<file>: install-script <key>@<version>`; or an entry without a string `version` is not `<file>: install-script <key>`"
+  - "a package already present without the flag whose entry gains `\"hasInstallScript\": true` is not a finding; or an entry flagged in the source under the same key - its version changed or not - is a finding, or a flagged entry the range removes is; or `hasInstallScript` set to anything but `true` is a finding; or a range that adds no flagged entry is anything but `pass` with the one evidence line `no install script added`"
+  - "a file whose last path segment is not `package-lock.json` or `npm-shrinkwrap.json` exactly is read - among them `yarn.lock`, `pnpm-lock.yaml`, `my-package-lock.json` and `package-lock.json.bak`; or a lockfile the range adds whole, or renames onto such a name, is not read, or a rename is read against anything but its source; or a version 1 lockfile yields a finding or a failure"
+  - "a candidate lockfile, or a source lockfile, that `JSON.parse` refuses yields anything but a `fail` record naming the file"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: install-script:<file> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another file, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - an entry the other side added after the merge base is a finding, or the working tree is read; a revision that names no commit, or a git that fails, yields anything but a `fail` record naming the cause, or the check throws; or the module exports `optionKinds`"
+  - "`repo-truth list` does not name RT-94 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/install-scripts.test.ts is not a file the task adds"
+  - "the task changes any file but src/checks/install-scripts.ts and test/unit/install-scripts.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/install-scripts.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-94)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const t = mkdtempSync(join(tmpdir(), "rt94-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); const lock = (pk) => JSON.stringify({ name: "x", lockfileVersion: 3, requires: true, packages: { "": { name: "x" }, ...pk } }, null, 2) + "\n"; const f = join(d, "package-lock.json"); writeFileSync(f, lock({ "node_modules/a": { version: "1.0.0" } })); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); writeFileSync(f, lock({ "node_modules/a": { version: "1.0.0" }, "node_modules/b": { version: "2.0.0", hasInstallScript: true } })); g("commit", "-q", "-am", "add b"); const run = (b) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-94", "--base", b, "--candidate", "HEAD", "--format", "json"], { cwd: d, encoding: "utf8" }); const r1 = run(base); const r2 = run("HEAD"); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const b = rec(r2); process.exitCode = Number(!(r1.status === 1 && a && a.name === "RT-94" && a.status === "fail" && a.evidence.length === 1 && a.evidence[0] === "package-lock.json: install-script node_modules/b@2.0.0" && r2.status === 0 && b && b.status === "pass"))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/install-scripts.ts is a module of the check directory: it
+      exports `name`, which is "RT-94", and `check`, and no `optionKinds`.
+      Its header comment says which files it reads and that they are read
+      with `JSON.parse`, what a finding is (a key flagged
+      `hasInstallScript: true` at the candidate and not in the source),
+      that a version 1 lockfile yields nothing, that an unreadable lockfile
+      fails the record, the id form `install-script:<file>` and the
+      `Sanctioned-Weakening:` line that sanctions a finding. `check`
+      returns a record and never throws: the fourth command item above
+      runs an added flagged package, and an empty range, through the built
+      command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/install-scripts.test.ts call `check` over
+      throwaway repositories and assert the whole record it returns: a
+      range that adds a flagged direct and a flagged nested package to a
+      `package-lock.json` at the top directory and to an
+      `npm-shrinkwrap.json` in a subdirectory; an entry with no `version`;
+      a present package gaining the flag; a flagged package whose version
+      changes, one removed, and `hasInstallScript` set to `false` and to
+      the string "true"; `yarn.lock`, `pnpm-lock.yaml`,
+      `my-package-lock.json` and `package-lock.json.bak` holding the flag;
+      a lockfile added whole, one renamed onto `package-lock.json`, and a
+      version 1 lockfile; a candidate lockfile and a source lockfile that
+      are not JSON; a finding sanctioned by a commit message line, one by
+      the caller's `sanctions`, and a line that names another file; a range
+      whose other side added an entry after the merge base; and a revision
+      that names no commit. Fixtures are built under the operating
+      system's temporary directory and removed when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-94.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/install-scripts.ts
+  - test/unit/install-scripts.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:install-scripts]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
