@@ -140,7 +140,7 @@ async function compare(cwd: string, from: string, to: string, allowed: readonly 
     const newPath = moved ? (fields[++i] ?? "") : oldPath;
     const letter = status.charAt(0);
     if (!["A", "M", "R", "C", "T"].includes(letter) || !isReadPath(newPath)) continue;
-    const fromRead = (letter === "M" || letter === "T" || letter === "R") && isReadPath(oldPath);
+    const fromRead = letter === "M" || letter === "T" || letter === "R";
     const before = countLines(fromRead ? await readBlob(cwd, oldSha) : "");
     const after = countLines(await readBlob(cwd, newSha));
     for (const [text, count] of after) {

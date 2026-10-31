@@ -131,6 +131,11 @@ describe("RT-88 unpinned actions", () => {
     expect(more.evidence).toEqual([`${W}: unpinned-action p/q@v2`]);
   });
 
+  it("reads the source of a rename from a path outside the governed set", async () => {
+    const text = body("      - uses: o/r@v1", "      - run: a", "      - run: b", "      - run: c");
+    expect(await run({ "notes.txt": text }, { "notes.txt": null, [W]: text })).toEqual(pass);
+  });
+
   describe("allowedOwners", () => {
     const after = { [W]: body("      - uses: someone/tool@v1", "      - uses: docker://someone/img:1", "      - uses: other/tool@v1") };
     it("quiets exactly the named owner", async () => {
