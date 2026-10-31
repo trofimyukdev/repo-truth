@@ -111,7 +111,8 @@ async function readUrls(cwd: string, commit: string): Promise<string[]> {
     const newline = entry.indexOf("\n");
     if (newline < 0) continue;
     const key = entry.slice(0, newline);
-    if (key.startsWith("submodule.") && key.endsWith(".url")) urls.push(entry.slice(newline + 1));
+    // The variable is what follows the last dot of the key; the section, whatever it is, does not matter.
+    if (key.endsWith(".url")) urls.push(entry.slice(newline + 1));
   }
   return urls;
 }

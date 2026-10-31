@@ -125,6 +125,12 @@ describe("RT-87 submodules added or moved", () => {
     expect(record.evidence).toEqual([".gitmodules: submodule-url https://example.org/other.git"]);
   });
 
+  it("fails a url in a section that is not a submodule's", async () => {
+    const record = await range({}, {}, { afterFiles: { ".gitmodules": '[remote "x"]\n\tURL = ../rel.git\n[other]\n\turl = https://example.com/o.git\n' } });
+    expect(record.status).toBe("fail");
+    expect(record.evidence).toEqual([".gitmodules: submodule-url ../rel.git", ".gitmodules: submodule-url https://example.com/o.git"]);
+  });
+
   it("passes a .gitmodules change that adds no url", async () => {
     const record = await range(
       {},
