@@ -74,6 +74,8 @@ passes over this README's own figures from the root commit.
   repository the command runs, and the configuration-change check watches that file (RT-81).
 - The end-to-end suite runs the built command in a subdirectory, where it reads and watches the top
   directory's repo-truth.json and reads a relative `--config` against the subdirectory (RT-85).
+- The Action's `except` input reaches the command as `--except`, so a workflow leaves out a check
+  without naming all the others (RT-86).
 - A path-policy check (RT-57), and the Action's records written to the job summary (the latter
   RT-40).
 

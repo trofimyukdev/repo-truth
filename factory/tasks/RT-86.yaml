@@ -1,0 +1,170 @@
+id: RT-86
+repo: repo-truth
+priority: 28
+milestone: M0
+title: The Action's `except` input reaches the command as `--except`, so a workflow leaves out a check without naming all the others
+
+outcome: >
+  `repo-truth check` takes `--except <name>`, repeatable, and runs every
+  registered check but the named ones (RT-35), so that a caller never holds
+  a list of names that goes stale when a check is added. The Action cannot
+  pass it: action.yml declares the inputs `checks`, `format` and `config`,
+  and src/action.ts `actionArguments` turns those three into arguments and
+  nothing else. So a workflow that must leave out one check - RT-03, which
+  asks every landing for a task trailer, fails every pull request of a
+  repository that writes none - has to list every other registered name in
+  `checks`, and that list stops running each check registered after it was
+  written. This task gives the Action a fourth input, `except`, that
+  reaches the command as one `--except <name>` per name, split as `checks`
+  is split (at white space and commas, empty names dropped), by the road
+  the other inputs take: one `env` entry of the step that runs the
+  command, `REPO_TRUTH_EXCEPT`, read only by the program, never written
+  into a script. An empty `except`, the default, passes nothing. The
+  command keeps every rule it has for the option: a name it does not
+  hold, names that leave no check to run, and `except` given together
+  with `checks` are each a refusal with exit 2, and the Action's job
+  summary then says the checks did not run. The README states the new
+  input in a later task.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own and use the ones the file already declares.
+
+  The factory measures a change's tests by mutating the lines of code it
+  adds or replaces, and refuses a change none of whose lines it can mutate;
+  so at least one line of code this task adds or replaces in src/action.ts
+  holds a construct its mutation catalogue always mutates, as the
+  not_done_if below says.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/action.test.ts
+
+not_done_if:
+  - "the `except` input is written into a `run` script as a `${{ }}` expression, or its value is expanded or run by a shell on its way to the command, instead of each name reaching it as one argument holding the text it is"
+  - "a set `except` does not reach the command as one `--except <name>` per name, split at white space and commas with empty names dropped, in the order written, after the `--check` arguments and before `--format`; or an empty `except` passes `--except`; or the input is required, has a default other than the empty string, or a description that does not name `--except`"
+  - "through the Action, an `except` naming one registered check does not run every other registered check and not that one, with the command's own exit code; or an `except` naming a check the command does not hold, naming every registered check, or given together with `checks` does not end with exit 2, nothing on stdout and the command's refusal on stderr, or the job summary does not say the checks did not run"
+  - "`checks`, `format` or `config` stop reaching the command as they do at the merge base, the step that builds changes, the step stops passing `--target` with the pull request's base branch on `origin` and `--candidate` with its head commit, or `dist/action.js` run as a program stops exiting with the command's own code"
+  - "a test of test/unit/action.test.ts at the merge base is deleted, renamed, skipped, focused or made to ask less - a line holding an `expect(` it holds removed or rewritten among them"
+  - "no line of code the task adds or replaces in src/action.ts (comment lines and the text of string literals left out) holds a one-line `if (...)` header, a comparison (`===`, `!==`, `==`, `!=`, `<=`, `>=`, or `<` or `>` with a space on each side) or a `&&` or `||`"
+  - "the task changes any file but action.yml, src/action.ts and test/unit/action.test.ts, or does not change both action.yml and src/action.ts; action.yml is not valid YAML; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/action.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const a = await import("./dist/action.js"); const v = a.actionArguments(["check"], { REPO_TRUTH_EXCEPT: " A,B  C ", REPO_TRUTH_FORMAT: "json", REPO_TRUTH_CONFIG: "c.json" }); const w = a.actionArguments(["check"], { REPO_TRUTH_EXCEPT: "" }); process.exitCode = Number(JSON.stringify(v) !== JSON.stringify(["check", "--except", "A", "--except", "B", "--except", "C", "--format", "json", "--config", "c.json"]) || JSON.stringify(w) !== JSON.stringify(["check"]))'''
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { spawnSync } = await import("node:child_process"); const { mkdtempSync, readFileSync, rmSync } = await import("node:fs"); const { join } = await import("node:path"); const { tmpdir } = await import("node:os"); const d = mkdtempSync(join(tmpdir(), "rt86-")); const f = join(d, "summary.md"); const r = spawnSync(process.execPath, ["dist/action.js", "check", "--no-fetch", "--base", "HEAD", "--candidate", "HEAD"], { encoding: "utf8", env: { ...process.env, REPO_TRUTH_EXCEPT: "RT-no-such-check", GITHUB_STEP_SUMMARY: f } }); let s = ""; try { s = readFileSync(f, "utf8"); } catch {} rmSync(d, { recursive: true, force: true }); process.exitCode = Number(!(r.status === 2 && r.stdout === "" && r.stderr.includes("RT-no-such-check") && s.includes("The checks did not run (exit code 2).") && s.includes("RT-no-such-check")))'''
+    required: true
+  - type: behavior
+    statement: >
+      action.yml declares a fourth input, `except`: it is not required, its
+      default is the empty string, and its description names `--except`
+      and says that the named checks are left out and every other
+      registered check runs. The step that runs the command maps it
+      through one `env` entry, `REPO_TRUTH_EXCEPT`, whose value is exactly
+      `${{ inputs.except }}`; no other step names it; no `run` script of
+      action.yml holds a `${{` expression, and the step's script reads none
+      of `REPO_TRUTH_CHECKS`, `REPO_TRUTH_EXCEPT`, `REPO_TRUTH_FORMAT` and
+      `REPO_TRUTH_CONFIG`, which only the program reads. `checks` (empty by
+      default), `format` (`text` by default) and `config` (empty by
+      default) map to `REPO_TRUTH_CHECKS`, `REPO_TRUTH_FORMAT` and
+      `REPO_TRUTH_CONFIG` in the same step; the step that builds runs
+      `npm ci && npm run build` in `${{ github.action_path }}`; the step
+      that runs the command runs
+      `exec node "$REPO_TRUTH_BIN" check --target "$REPO_TRUTH_TARGET" --candidate "$REPO_TRUTH_CANDIDATE"`,
+      with `REPO_TRUTH_TARGET` set to
+      `origin/${{ github.event.pull_request.base.ref }}` and
+      `REPO_TRUTH_CANDIDATE` to
+      `${{ github.event.pull_request.head.sha }}`.
+  - type: behavior
+    statement: >
+      src/action.ts `actionArguments(argv, env)` returns `argv` as given,
+      then the `--check` arguments of `env.REPO_TRUTH_CHECKS`, then one
+      `--except` and the name for each name of `env.REPO_TRUTH_EXCEPT`
+      split at white space and commas with empty names dropped, then
+      `--format` and its value when `env.REPO_TRUTH_FORMAT` is set and not
+      empty, then `--config` and `env.REPO_TRUTH_CONFIG` when that is set
+      and not empty - each name one
+      argument holding its text as written, so a name holding `$(`, a
+      backtick, a semicolon or a quote is one argument. Its doc comment
+      says so. Run as a program, `dist/action.js` exits with the code the
+      command answers: an `except` naming a check the command does not
+      hold is exit 2 with nothing on stdout and the refusal on stderr, and
+      the job summary it appends says "The checks did not run (exit code
+      2)." and holds that refusal - the command item above runs that road
+      through the built program.
+  - type: behavior
+    statement: >
+      Tests in test/unit/action.test.ts: `actionArguments` with an empty
+      and an unset `REPO_TRUTH_EXCEPT`, one name, names separated by
+      commas, spaces, tabs and newlines, names beside every other input
+      set, and a name holding shell characters, each asserting the whole
+      array it returns; action.yml read as text, asserting the `except`
+      input, its default, the word its description names and the `env`
+      entry; `main` run with the array `actionArguments` returns over a
+      throwaway repository, with registry entries of the suite's own,
+      asserting that the name `except` gives is the one check not run and
+      every other entry runs, and that a name the registry does not hold,
+      names covering every entry, and `except` with `checks` are each exit
+      2 with nothing on stdout and no check run; and `runAction` with an
+      `except` the command refuses, asserting the summary of exit 2.
+      Fixtures are built under the operating system's temporary directory
+      and removed when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-86.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - action.yml
+  - src/action.ts
+  - test/unit/action.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - repo-truth.json
+  - src/cli.ts
+  - src/config.ts
+  - src/registry.ts
+  - src/index.ts
+  - src/checks/**
+  - test/unit/cli.test.ts
+  - test/unit/cli-config.test.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:action]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
