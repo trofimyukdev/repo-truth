@@ -20,15 +20,15 @@ const ENV = {
 };
 
 const NINE: [string, string][] = [
-  ["U+202A", "‪"],
-  ["U+202B", "‫"],
-  ["U+202C", "‬"],
-  ["U+202D", "‭"],
-  ["U+202E", "‮"],
-  ["U+2066", "⁦"],
-  ["U+2067", "⁧"],
-  ["U+2068", "⁨"],
-  ["U+2069", "⁩"],
+  ["U+202A", "\u202a"],
+  ["U+202B", "\u202b"],
+  ["U+202C", "\u202c"],
+  ["U+202D", "\u202d"],
+  ["U+202E", "\u202e"],
+  ["U+2066", "\u2066"],
+  ["U+2067", "\u2067"],
+  ["U+2068", "\u2068"],
+  ["U+2069", "\u2069"],
 ];
 const PASS = ["no bidirectional control character added"];
 
@@ -92,7 +92,7 @@ describe("RT-93 bidirectional controls", () => {
 
   it("names several characters once each, ascending, in one finding", async () => {
     const base = await commit(repo, { "a.ts": "x\n" });
-    await commit(repo, { "a.ts": "x\n⁩ ⁦ ‮\n‮ again ⁦\n" });
+    await commit(repo, { "a.ts": "x\n\u2069 \u2066 \u202e\n\u202e again \u2066\n" });
     expect(await run(base)).toEqual(failing("a.ts", "U+202E,U+2066,U+2069"));
   });
 
@@ -109,21 +109,21 @@ describe("RT-93 bidirectional controls", () => {
   });
 
   it("does not read a line the merge base already holds, moved or re-indented", async () => {
-    const line = "let a = 1; // ‮";
+    const line = "let a = 1; // \u202e";
     const base = await commit(repo, { "a.ts": `${line}\nlet b = 2;\n` });
     await commit(repo, { "a.ts": `let b = 2;\n    ${line}\r\n` });
     expect((await run(base)).status).toBe("pass");
   });
 
   it("reads a line added more often than the merge base held it", async () => {
-    const line = "let a = 1; // ⁧";
+    const line = "let a = 1; // \u2067";
     const base = await commit(repo, { "a.ts": `${line}\n` });
     await commit(repo, { "a.ts": `${line}\n${line}\n` });
     expect(await run(base)).toEqual(failing("a.ts", "U+2067"));
   });
 
   it("does not read a removed line", async () => {
-    const base = await commit(repo, { "a.ts": "let a = 1; // ‮\nlet b = 2;\n" });
+    const base = await commit(repo, { "a.ts": "let a = 1; // \u202e\nlet b = 2;\n" });
     await commit(repo, { "a.ts": "let b = 2;\n" });
     expect((await run(base)).status).toBe("pass");
     await commit(repo, { "a.ts": null });
@@ -131,24 +131,24 @@ describe("RT-93 bidirectional controls", () => {
   });
 
   it("reads a renamed file against its source", async () => {
-    const body = ["one", "two", "three", "let a = 1; // ‮", "four", "five", "six", ""].join("\n");
+    const body = ["one", "two", "three", "let a = 1; // \u202e", "four", "five", "six", ""].join("\n");
     const base = await commit(repo, { "old/a.ts": body });
     await git(repo, ["mv", "old/a.ts", "new.ts"]);
     await commit(repo, {});
     expect((await run(base)).status).toBe("pass");
-    await commit(repo, { "new.ts": `${body}let c = "⁨";\n` });
+    await commit(repo, { "new.ts": `${body}let c = "\u2068";\n` });
     expect(await run(base)).toEqual(failing("new.ts", "U+2068"));
   });
 
   it("does not read a file holding a NUL byte, and counts such a source as none", async () => {
-    const base = await commit(repo, { "bin.dat": Buffer.from("x\0\n"), "src.ts": Buffer.from("// ‮\0\n") });
-    await commit(repo, { "bin.dat": Buffer.from("x\0\n// ‮\n"), "src.ts": "// ‮\n" });
+    const base = await commit(repo, { "bin.dat": Buffer.from("x\0\n"), "src.ts": Buffer.from("// \u202e\0\n") });
+    await commit(repo, { "bin.dat": Buffer.from("x\0\n// \u202e\n"), "src.ts": "// \u202e\n" });
     expect(await run(base)).toEqual(failing("src.ts", "U+202E"));
   });
 
   it("does not read a symbolic link or a gitlink", async () => {
     const base = await commit(repo, { "keep.txt": "x\n" });
-    await writeFile(join(repo, "target.txt"), "// ‮\n");
+    await writeFile(join(repo, "target.txt"), "// \u202e\n");
     await symlink("target.txt", join(repo, "link.ts"));
     const sha = await git(repo, ["rev-parse", base]);
     await git(repo, ["update-index", "--add", "--cacheinfo", `160000,${sha},sub`]);
@@ -159,7 +159,7 @@ describe("RT-93 bidirectional controls", () => {
 
   it("is passed by a commit message line, or by the caller's sanctions, naming the file", async () => {
     const base = await commit(repo, { "keep.txt": "x\n" });
-    await commit(repo, { "a.ts": "// ‮\n" }, `add\n\n${SANCTION_KEY}: bidi-control:a.ts right-to-left fixture`);
+    await commit(repo, { "a.ts": "// \u202e\n" }, `add\n\n${SANCTION_KEY}: bidi-control:a.ts right-to-left fixture`);
     expect(await run(base)).toEqual({
       name,
       status: "pass",
@@ -173,14 +173,14 @@ describe("RT-93 bidirectional controls", () => {
 
   it("is not passed by a line naming another file or giving no reason", async () => {
     const base = await commit(repo, { "keep.txt": "x\n" });
-    await commit(repo, { "a.ts": "// ‮\n" }, `add\n\n${SANCTION_KEY}: bidi-control:b.ts reason\n${SANCTION_KEY}: bidi-control:a.ts`);
+    await commit(repo, { "a.ts": "// \u202e\n" }, `add\n\n${SANCTION_KEY}: bidi-control:b.ts reason\n${SANCTION_KEY}: bidi-control:a.ts`);
     expect(await run(base)).toEqual(failing("a.ts", "U+202E"));
   });
 
   it("does not read what the other side added after the merge base", async () => {
     const base = await commit(repo, { "keep.txt": "x\n" });
     await git(repo, ["checkout", "--quiet", "-b", "other"]);
-    const other = await commit(repo, { "o.ts": "// ‮\n" });
+    const other = await commit(repo, { "o.ts": "// \u202e\n" });
     await git(repo, ["checkout", "--quiet", "main"]);
     await commit(repo, { "m.ts": "let m = 1;\n" });
     expect(await run(other)).toEqual({ name, status: "pass", evidence: PASS, findings: [] });
@@ -198,7 +198,7 @@ describe("RT-93 bidirectional controls", () => {
 
   it("escapes a file name outside printable ASCII", async () => {
     const base = await commit(repo, { "keep.txt": "x\n" });
-    await commit(repo, { "café.ts": "// ‮\n" });
+    await commit(repo, { "café.ts": "// \u202e\n" });
     const record = await run(base);
     expect(record.evidence).toEqual(["caf\\u{00e9}.ts: bidi-control U+202E"]);
   });

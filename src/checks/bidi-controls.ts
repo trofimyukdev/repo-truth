@@ -35,7 +35,7 @@ import { SANCTION_KEY } from "../weakened-tests.js";
 
 export const name = "RT-93";
 
-const CONTROLS = /[‪-‮⁦-⁩]/g;
+const CONTROLS = /[\u202a-\u202e\u2066-\u2069]/g;
 
 export interface BidiControlsOptions {
   readonly cwd: string;
