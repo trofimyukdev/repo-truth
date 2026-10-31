@@ -1,0 +1,182 @@
+id: RT-91
+repo: repo-truth
+priority: 25
+milestone: M0
+title: Workflow permissions - a workflow line the range adds that gives the job's token write access, or that runs the workflow on pull_request_target
+
+outcome: >
+  A workflow's `permissions:` decide what the job's token may do: with
+  `contents: write` a step that runs code from a dependency can push to
+  the repository, with `id-token: write` it can ask a cloud for
+  credentials, and `permissions: write-all` gives every scope at once. The
+  `pull_request_target` trigger runs a workflow with the base
+  repository's token and secrets for a pull request from anyone. A
+  pull request that adds one of these to a workflow passes every
+  registered check today: RT-56 reads only lines that let a failing job
+  pass (`continue-on-error`, `if: false`, `|| true`), and RT-88 only what
+  a `uses:` line names. This task adds a check, RT-91, a module of the
+  check directory (src/checks/workflow-permissions.ts, no edit of
+  src/registry.ts), that fails a range which adds such a line to a
+  workflow, naming the file and the line, unless a commit message of the
+  range sanctions it.
+
+  Which files: every workflow file the range adds, changes or renames
+  onto - `.github/workflows/<name>.yml` or `.yaml` directly in that
+  directory, RT-56's rule - read whole through git at the merge base of
+  `base` and `candidate` and at `candidate`, renames detected, never from
+  the working tree. The YAML is not parsed. A line's text is the line
+  with white space at both ends removed; its value-text is that text with
+  a trailing comment (a `#` after white space, to the end of the line)
+  removed and white space at the end removed again. A line is added when
+  the candidate's file holds its text more often than the source file
+  held it - the source file being the file at the merge base, the one a
+  rename came from, or none for a file the range adds; a line moved or
+  re-indented is not added, and a text added more than once is one
+  finding.
+
+  The three categories, each judged on an added line's value-text, an
+  opening `- ` removed first; a value is the same whether it is written
+  plain, in double quotes or in single quotes, and white space around a
+  colon does not matter:
+  `write-all` - the key `permissions` with the value `write-all`;
+  `write-permission` - a scope of the job's token with the value `write`,
+  the scopes being `actions`, `attestations`, `checks`, `contents`,
+  `deployments`, `discussions`, `id-token`, `issues`, `models`,
+  `packages`, `pages`, `pull-requests`, `repository-projects`,
+  `security-events` and `statuses`, either as the whole value-text
+  (`contents: write`) or as one entry of a one-line mapping that is the
+  value of the key `permissions` (`permissions: { contents: write }`);
+  `pull-request-target` - the key `pull_request_target` with or without a
+  value, the list item `pull_request_target`, or the key `on` whose value
+  is `pull_request_target` or a one-line list (`[...]`) holding it among
+  its entries.
+  Nothing else is a finding: `read`, `none`, `read-all` and `{}`, a scope
+  not in the list, `pull_request` and `workflow_run`, the words inside a
+  comment line or inside a `run:` line's command.
+
+  Each added line of a category is a finding of its file, one evidence
+  line `<file>: <category> "<text>"` - the line's text as defined above,
+  its comment kept; a sanctioned one ends ` - sanctioned: <reason>`; the
+  evidence lines come in no particular order. A finding's id is
+  `<category>:<file>`, which sanctions every finding of that category in
+  that file, by a `Sanctioned-Weakening: <id> <reason>` line in a commit
+  message of the range or by the caller's `sanctions`, the form
+  src/checks/script-changes.ts and src/checks/workflow-weakening.ts state
+  in their headers. The check declares no options. A range with no
+  finding is a `pass` whose one evidence line is
+  `no workflow permission raised`.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/workflow-permissions.test.ts
+
+creates_test_files:
+  - test/unit/workflow-permissions.test.ts
+
+not_done_if:
+  - "a range that adds to a workflow file `permissions: write-all`, a line `<scope>: write` for any of the fifteen scopes the outcome lists, or `permissions: { <scope>: write }` leaves RT-91's record anything but `fail` with the evidence line `<file>: write-all \"<text>\"` or `<file>: write-permission \"<text>\"` - the value plain or quoted, with a trailing comment or not, as a `- ` list item or not"
+  - "a range that adds `pull_request_target:`, `pull_request_target:` with a value, `- pull_request_target`, `on: pull_request_target` or `on: [push, pull_request_target]` is anything but `fail` with the evidence line `<file>: pull-request-target \"<text>\"`"
+  - "`read`, `none`, `read-all`, `{}`, a scope not in the list set to `write`, `pull_request`, `workflow_run`, a comment line, or a `run:` line naming any of the words is a finding; or a range that adds none of the three categories is anything but `pass` with the one evidence line `no workflow permission raised`"
+  - "a file outside `.github/workflows/`, or one deeper in it, is read; or a line the merge base's file already holds as often, moved or re-indented, is a finding; or a workflow file the range adds whole, or renames onto a workflow path, is not read, or a rename is read against anything but its source; or a text added twice is two findings"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: <category>:<file> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another category or another file, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - a line the other side added after the merge base is a finding, or the working tree is read; a revision that names no commit, or a git that fails, yields anything but a `fail` record naming the cause, or the check throws; or the module exports `optionKinds`"
+  - "`repo-truth list` does not name RT-91 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/workflow-permissions.test.ts is not a file the task adds"
+  - "the task changes any file but src/checks/workflow-permissions.ts and test/unit/workflow-permissions.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/workflow-permissions.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-91)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const t = mkdtempSync(join(tmpdir(), "rt91-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); mkdirSync(join(d, ".github/workflows"), { recursive: true }); const w = join(d, ".github/workflows/ci.yml"); writeFileSync(w, "on: push\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n"); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); writeFileSync(w, "on: [push, pull_request_target]\npermissions:\n  contents: write\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n"); g("commit", "-q", "-am", "raise"); const run = (b) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-91", "--base", b, "--candidate", "HEAD", "--format", "json"], { cwd: d, encoding: "utf8" }); const r1 = run(base); const r2 = run("HEAD"); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const b = rec(r2); const want = [".github/workflows/ci.yml: pull-request-target \"on: [push, pull_request_target]\"", ".github/workflows/ci.yml: write-permission \"contents: write\""]; process.exitCode = Number(!(r1.status === 1 && a && a.name === "RT-91" && a.status === "fail" && a.evidence.length === 2 && want.every((l) => a.evidence.includes(l)) && r2.status === 0 && b && b.status === "pass"))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/workflow-permissions.ts is a module of the check
+      directory: it exports `name`, which is "RT-91", and `check`, and no
+      `optionKinds`. Its header comment says which files it reads, that
+      the YAML is not parsed, when a line is added, the three categories
+      and the fifteen scopes, what is not a finding, the id form
+      `<category>:<file>` and the `Sanctioned-Weakening:` line that
+      sanctions a finding. `check` returns a record and never throws: the
+      fourth command item above runs an added `pull_request_target` and
+      `contents: write`, and an empty range, through the built command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/workflow-permissions.test.ts call `check` over
+      throwaway repositories and assert the whole record it returns: a
+      range that adds `permissions: write-all`, a `<scope>: write` line
+      for each of the fifteen scopes, and `permissions: { ... }` holding
+      one, plain, quoted and with a trailing comment, as list items and
+      not; each `pull_request_target` form the outcome names; `read`,
+      `none`, `read-all`, `{}`, an unlisted scope set to `write`,
+      `pull_request`, `workflow_run`, a comment line and a `run:` line
+      naming the words; a `.yml` outside `.github/workflows/` and one in a
+      subdirectory of it; a line the merge base already holds, moved and
+      re-indented; one text added twice; a workflow added whole and one
+      renamed onto a workflow path; a finding sanctioned by a commit
+      message line, one by the caller's `sanctions`, and a line that names
+      another category; a range whose other side added a line after the
+      merge base; and a revision that names no commit. Fixtures are built
+      under the operating system's temporary directory and removed when
+      the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-91.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/workflow-permissions.ts
+  - test/unit/workflow-permissions.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:workflow-permissions]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
