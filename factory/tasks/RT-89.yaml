@@ -1,0 +1,170 @@
+id: RT-89
+repo: repo-truth
+priority: 25
+milestone: M0
+title: Secret files - a file the range adds or changes whose name is one that holds secrets, such as .env, .netrc or a private key
+
+outcome: >
+  Some files hold secrets by what they are, not by how a line of them
+  looks: a `.env` file of plain `NAME=value` lines, a `.netrc` or
+  `.pgpass` with a password, an SSH private key file, a Terraform state.
+  RT-26 reports a line only in a form only a real credential has - a
+  private key block, a cloud key id, a token prefix, a quoted secret of
+  twenty characters or more - so `DB_PASSWORD=hunter2` in a `.env` passes
+  it, and RT-05 reports such a file only when the repository's own ignore
+  rules exclude it. No registered check reports such a file unless a
+  configuration names it: RT-57 reports only what its `forbidden` option
+  lists, and it lists nothing by default. This
+  task adds a check, RT-89, a module of the check directory
+  (src/checks/secret-files.ts, no edit of src/registry.ts), that fails a
+  range which adds or changes such a file, naming it and never printing
+  what it holds, unless a commit message of the range sanctions it.
+
+  Which names: the file's last path segment, compared exactly (letter case
+  included), at any depth. The exported array `SECRET_FILE_NAMES`, read
+  each time the check runs so a consumer can append to it, holds regular
+  expressions, each tested with `RegExp.prototype.test` against the last
+  segment; as shipped it matches `.env`, `.env.<suffix>` unless the last
+  dot-separated part of the name is `example`, `sample`, `template` or
+  `dist` (so `.env.local.example` is not matched), `.netrc`, `_netrc`,
+  `.pgpass`,
+  `.git-credentials`, `.htpasswd`, `id_rsa`, `id_dsa`, `id_ecdsa`,
+  `id_ed25519` (a `.pub` file is not one of them), and any name ending
+  `.tfstate` or `.tfstate.backup`.
+
+  What a finding is: the range is read through git from the merge base of
+  `base` and `candidate` to `candidate`, renames detected, never from the
+  working tree. A path at `candidate` that is a file (never a symbolic
+  link or a gitlink) and whose name matches is a finding
+  `secret-file-added` when the range adds it, copies it, renames a file
+  onto it, or turns a symbolic link or a submodule into it, and
+  `secret-file-changed` when the range modifies it; a matching file the
+  range deletes, or renames away to a name that does not match, is no
+  finding. Each finding is one evidence line that opens
+  `<path>: <category>`, the path from the repository's top directory - a
+  rename's line then ` from <source>` - and a sanctioned one ends
+  ` - sanctioned: <reason>`; a `fail` record's evidence is its findings'
+  lines and nothing else, and no evidence line holds any text of the file.
+  A finding's id is `<category>:<path>`, sanctioned by a
+  `Sanctioned-Weakening: <id> <reason>` line in a commit message of the
+  range or by the caller's `sanctions`, the form
+  src/checks/script-changes.ts and src/checks/workflow-weakening.ts state
+  in their headers. The check declares no options, so no configuration
+  file can quiet it. A range with no finding is a `pass` whose one
+  evidence line is `no secret file added or changed`.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds, and RT-26, which reports a line in a
+  credential's form; so the tests this task adds set no timeout of their
+  own, and their fixtures hold no text in a form RT-26 reports.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/secret-files.test.ts
+
+creates_test_files:
+  - test/unit/secret-files.test.ts
+
+not_done_if:
+  - "a range that adds a file whose last path segment is one of the shipped names - `.env`, `.env.local`, `.env.production`, `.netrc`, `_netrc`, `.pgpass`, `.git-credentials`, `.htpasswd`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `terraform.tfstate`, `prod.tfstate.backup` - at the top directory or below it, leaves RT-89's record anything but `fail` with an evidence line that opens `<path>: secret-file-added`; or a range that modifies such a file is not `fail` with a line that opens `<path>: secret-file-changed`"
+  - "`.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `id_rsa.pub`, `.ENV`, `env`, `my.env` or `.envrc` added is a finding; or a range that adds or changes no matching file is anything but `pass` with the one evidence line `no secret file added or changed`"
+  - "a file copied or renamed onto a matching name, or a symbolic link or submodule turned into a matching file, is not `secret-file-added` (a rename's line holding ` from <source>`); or a matching file the range deletes, or renames away to a name that does not match, is a finding"
+  - "an evidence line holds any text of a file's content; or `SECRET_FILE_NAMES` is not an exported array of regular expressions read each time the check runs, so an entry a consumer appends matches nothing"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: <category>:<path> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another category or another path, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - a file the other side added after the merge base is a finding, or the working tree is read; a revision that names no commit, or a git that fails, yields anything but a `fail` record naming the cause, or the check throws; or the module exports `optionKinds`, so a configuration file can give it an option"
+  - "`repo-truth list` does not name RT-89 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/secret-files.test.ts is not a file the task adds"
+  - "the task changes any file but src/checks/secret-files.ts and test/unit/secret-files.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/secret-files.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-89)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const t = mkdtempSync(join(tmpdir(), "rt89-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); writeFileSync(join(d, "a.txt"), "a\n"); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); mkdirSync(join(d, "app")); writeFileSync(join(d, "app/.env"), "DB_PASSWORD=plainword\n"); writeFileSync(join(d, ".env.example"), "DB_PASSWORD=\n"); g("add", "-A"); g("commit", "-q", "-m", "add"); const run = (b) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-89", "--base", b, "--candidate", "HEAD", "--format", "json"], { cwd: d, encoding: "utf8" }); const r1 = run(base); const r2 = run("HEAD"); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const b = rec(r2); process.exitCode = Number(!(r1.status === 1 && a && a.name === "RT-89" && a.status === "fail" && a.evidence.length === 1 && a.evidence[0].startsWith("app/.env: secret-file-added") && !r1.stdout.includes("plainword") && r2.status === 0 && b && b.status === "pass"))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/secret-files.ts is a module of the check directory: it
+      exports `name`, which is "RT-89", `check` and `SECRET_FILE_NAMES`,
+      and no `optionKinds`. Its header comment says that a file is judged
+      by its last path segment and never by its content, which names the
+      shipped `SECRET_FILE_NAMES` matches and which `.env` suffixes it does
+      not, the two categories, that no evidence line holds the file's
+      text, the id form `<category>:<path>` and the `Sanctioned-Weakening:`
+      line that sanctions a finding. `check` returns a record and never
+      throws: the fourth command item above runs a `.env` added in a
+      subdirectory beside an `.env.example`, and an empty range, through
+      the built command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/secret-files.test.ts call `check` over throwaway
+      repositories and assert the whole record it returns: a range that
+      adds each shipped name at the top directory and in a subdirectory;
+      one that modifies a `.env` the merge base holds; each name the check
+      leaves alone (`.env.example`, `.env.sample`, `.env.template`,
+      `.env.dist`, `id_rsa.pub`, `.ENV`, `env`, `my.env`, `.envrc`); a file
+      renamed onto `.env`, one copied onto it, and a symbolic link turned
+      into it; a `.env` deleted and one renamed away; an entry appended to
+      `SECRET_FILE_NAMES` and removed after the test; a finding sanctioned
+      by a commit message line, one by the caller's `sanctions`, and a line
+      that names another path; a range whose other side added a `.env`
+      after the merge base; and a revision that names no commit - each
+      record checked to hold no text of the fixtures' contents. Fixtures
+      are built under the operating system's temporary directory and
+      removed when the suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-89.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/secret-files.ts
+  - test/unit/secret-files.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:secret-files]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract, security]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }

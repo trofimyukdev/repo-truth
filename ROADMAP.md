@@ -86,7 +86,7 @@ to the job summary.
 
 - More checks: a CI workflow that is weakened (RT-56), binary files the range adds (RT-55), a
   submodule added or moved to another commit (RT-87), an action reference not pinned to a commit
-  (RT-88).
+  (RT-88), a file whose name says it holds secrets (RT-89).
 - Suite-strength tasks for the remaining modules, starting with conflict markers (RT-43), stray
   files (RT-44), raised timeouts (RT-45) and credentials (RT-46); then the measurement rule
   (RT-47), snapshot refreshes (RT-48), portable paths (RT-49) and weakened tests (RT-50, reissued
