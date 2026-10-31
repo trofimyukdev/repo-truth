@@ -77,7 +77,8 @@ export async function resolveMergeBase(cwd: string, target: string, candidate: s
 /**
  * The command's arguments for the Action: `argv` as given, then one
  * `--check <name>` per name in `env.REPO_TRUTH_CHECKS` (split at white space and
- * commas), then `--format <format>` when `env.REPO_TRUTH_FORMAT` is set, then
+ * commas), then one `--except <name>` per name in `env.REPO_TRUTH_EXCEPT` (split
+ * the same way), then `--format <format>` when `env.REPO_TRUTH_FORMAT` is set, then
  * `--config <path>` when `env.REPO_TRUTH_CONFIG` is set and not empty. Nothing
  * is run, expanded or matched: every name, and the path, is one argument, as
  * written.
@@ -86,6 +87,9 @@ export function actionArguments(argv: readonly string[], env: Readonly<Record<st
   const out = [...argv];
   for (const name of (env.REPO_TRUTH_CHECKS ?? "").split(/[\s,]+/)) {
     if (name !== "") out.push("--check", name);
+  }
+  for (const name of (env.REPO_TRUTH_EXCEPT ?? "").split(/[\s,]+/)) {
+    if (name !== "") out.push("--except", name);
   }
   const format = env.REPO_TRUTH_FORMAT;
   if (format !== undefined && format !== "") out.push("--format", format);

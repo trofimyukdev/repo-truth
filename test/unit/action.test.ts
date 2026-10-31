@@ -583,6 +583,141 @@ describe("runAction", () => {
   });
 });
 
+describe("the except input", () => {
+  const base = ["check", "--target", "origin/main", "--candidate", "abc"];
+  const text = readFileSync(join(__dirname, "..", "..", "action.yml"), "utf8");
+  const inputs = text.slice(text.indexOf("\ninputs:"), text.indexOf("\nruns:"));
+  const except = inputs.slice(inputs.indexOf("  except:"), inputs.indexOf("  format:"));
+  const exceptions = (...names: string[]) => names.flatMap((n) => ["--except", n]);
+
+  it("passes nothing for an empty or unset except", () => {
+    expect(actionArguments(base, { REPO_TRUTH_EXCEPT: "" })).toEqual(base);
+    expect(actionArguments(base, { REPO_TRUTH_EXCEPT: undefined })).toEqual(base);
+    expect(actionArguments(base, { REPO_TRUTH_EXCEPT: " ,\n" })).toEqual(base);
+  });
+
+  it("passes one name as one --except", () => {
+    expect(actionArguments(base, { REPO_TRUTH_EXCEPT: "A" })).toEqual([...base, "--except", "A"]);
+  });
+
+  it("splits at commas, spaces, tabs and newlines, dropping empty names, in order", () => {
+    expect(actionArguments(base, { REPO_TRUTH_EXCEPT: "A,B" })).toEqual([...base, ...exceptions("A", "B")]);
+    expect(actionArguments(base, { REPO_TRUTH_EXCEPT: " A,,B ,\tC\nD\r\n,E " })).toEqual([
+      ...base,
+      ...exceptions("A", "B", "C", "D", "E"),
+    ]);
+  });
+
+  it("comes after the checks and before the format and the config", () => {
+    const env = {
+      REPO_TRUTH_CONFIG: "c.json",
+      REPO_TRUTH_FORMAT: "json",
+      REPO_TRUTH_EXCEPT: "X Y",
+      REPO_TRUTH_CHECKS: "A",
+    };
+    expect(actionArguments(base, env)).toEqual([
+      ...base,
+      "--check",
+      "A",
+      ...exceptions("X", "Y"),
+      "--format",
+      "json",
+      "--config",
+      "c.json",
+    ]);
+  });
+
+  it("leaves shell characters as one argument each", () => {
+    expect(actionArguments([], { REPO_TRUTH_EXCEPT: "$(id);x `id` 'q' *" })).toEqual(
+      exceptions("$(id);x", "`id`", "'q'", "*"),
+    );
+  });
+
+  it("is declared optional, empty by default, and names --except in action.yml", () => {
+    expect(except).toMatch(/required: false/);
+    expect(except).toMatch(/default: ""/);
+    expect(except).toContain("--except");
+    expect(except).toMatch(/left out/);
+    expect(except).toMatch(/every other registered check runs/);
+  });
+
+  it("reaches the step through one env entry and no script names it", () => {
+    expect(text.match(/REPO_TRUTH_EXCEPT/g)).toHaveLength(1);
+    expect(text).toMatch(/^ {8}REPO_TRUTH_EXCEPT: \$\{\{ inputs\.except \}\}$/m);
+    expect(text.match(/inputs\.except/g)).toHaveLength(1);
+    expect(text.slice(text.indexOf("run: |"))).not.toContain("EXCEPT");
+  });
+
+  describe("through main and runAction", () => {
+    let repo: string;
+    let head: string;
+
+    beforeAll(() => {
+      repo = newRepo();
+      commit(repo, "a.txt", "1\n", "fork");
+      git(repo, "checkout", "-q", "-b", "feature");
+      head = commit(repo, "f.txt", "f\n", "feature work");
+      git(repo, "checkout", "-q", "main");
+    });
+
+    const argv = () => ["check", "--no-fetch", "--format", "json", "--target", "main", "--candidate", head];
+
+    it("runs every entry but the one named", async () => {
+      const calls: string[] = [];
+      useRegistry(stub("A", "pass", calls), stub("B", "pass", calls), stub("C", "pass", calls));
+      const r = await run(actionArguments(argv(), { REPO_TRUTH_EXCEPT: "B" }), repo);
+      expect(r.code).toBe(EXIT_OK);
+      expect(calls.sort()).toEqual(["A", "C"]);
+      expect(JSON.parse(r.stdout).records.map((x: CheckRecord) => x.name).sort()).toEqual(["A", "C"]);
+    });
+
+    it("leaves out a failing check and takes the code of the rest", async () => {
+      const calls: string[] = [];
+      useRegistry(stub("A", "pass", calls), stub("B", "fail", calls));
+      const r = await run(actionArguments(argv(), { REPO_TRUTH_EXCEPT: "B" }), repo);
+      expect(r.code).toBe(EXIT_OK);
+      expect(calls).toEqual(["A"]);
+    });
+
+    it("is exit 2 with nothing on stdout and no check run for an unknown name, every entry, or checks too", async () => {
+      const calls: string[] = [];
+      useRegistry(stub("A", "pass", calls), stub("B", "pass", calls));
+      for (const env of [
+        { REPO_TRUTH_EXCEPT: "NOPE" },
+        { REPO_TRUTH_EXCEPT: "A,B" },
+        { REPO_TRUTH_EXCEPT: "A", REPO_TRUTH_CHECKS: "B" },
+      ]) {
+        const r = await run(actionArguments(argv(), env), repo);
+        expect(r.code).toBe(EXIT_BAD_INVOCATION);
+        expect(r.stdout).toBe("");
+        expect(r.stderr).not.toBe("");
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it("holds the refusal in the job summary for an except the command refuses", async () => {
+      useRegistry(stub("A", "pass"));
+      const file = join(root, `except-summary-${counter++}.md`);
+      const env = { GITHUB_STEP_SUMMARY: file, REPO_TRUTH_EXCEPT: "RT-no-such-check" };
+      let stdout = "";
+      let stderr = "";
+      const code = await runAction(argv(), env, {
+        cwd: repo,
+        env,
+        stdout: (t) => void (stdout += t),
+        stderr: (t) => void (stderr += t),
+      });
+      expect(code).toBe(EXIT_BAD_INVOCATION);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("RT-no-such-check");
+      const summary = readFileSync(file, "utf8");
+      expect(summary).toBe(jobSummary(2, stderr));
+      expect(summary).toContain("The checks did not run (exit code 2).");
+      expect(summary).toContain("RT-no-such-check");
+    });
+  });
+});
+
 describe("resolveMergeBase failures", () => {
   it("says the checkout is shallow in a shallow checkout", async () => {
     const origin = newRepo();
