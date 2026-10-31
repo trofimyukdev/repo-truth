@@ -5,6 +5,10 @@ inputs:
     description: "A list of check names separated by white space or commas, each run as --check <name>. Empty runs every registered check."
     required: false
     default: ""
+  except:
+    description: "A list of check names separated by white space or commas, each passed to the command as --except <name>. The named checks are left out and every other registered check runs. Not allowed together with checks. Empty passes nothing."
+    required: false
+    default: ""
   format:
     description: "The form the checks are printed in: text or json."
     required: false
@@ -27,6 +31,7 @@ runs:
         REPO_TRUTH_CANDIDATE: ${{ github.event.pull_request.head.sha }}
         REPO_TRUTH_BIN: ${{ github.action_path }}/dist/action.js
         REPO_TRUTH_CHECKS: ${{ inputs.checks }}
+        REPO_TRUTH_EXCEPT: ${{ inputs.except }}
         REPO_TRUTH_FORMAT: ${{ inputs.format }}
         REPO_TRUTH_CONFIG: ${{ inputs.config }}
       run: |
