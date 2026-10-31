@@ -1,0 +1,174 @@
+id: RT-92
+repo: repo-truth
+priority: 24
+milestone: M0
+title: Lint rules turned off - a lint configuration file the range changes so that a rule is set to off
+
+outcome: >
+  A lint run goes green as surely when a rule is turned off in the lint
+  configuration as when the code is fixed. RT-31 reports a suppression
+  written in a comment of a source file (`eslint-disable` and its kin),
+  RT-34 a compiler option lowered in a tsconfig, RT-14 a coverage
+  threshold lowered; none reads a lint configuration, so a range that
+  sets `"no-explicit-any": "off"` in `.eslintrc.json`, `eqeqeq: "off"` in
+  `eslint.config.js` or `"noExplicitAny": "off"` in `biome.json` passes
+  every registered check today. This task adds a check, RT-92, a module
+  of the check directory (src/checks/lint-rules.ts, no edit of
+  src/registry.ts), that fails a range which turns a rule off in a lint
+  configuration file, naming the file and the rule, unless a commit
+  message of the range sanctions it.
+
+  Which files: every path the range adds, changes or renames onto whose
+  last path segment is, exactly, `.eslintrc`, `.eslintrc.json`,
+  `.eslintrc.yml`, `.eslintrc.yaml`, `.eslintrc.js`, `.eslintrc.cjs`,
+  `eslint.config.js`, `eslint.config.mjs`, `eslint.config.cjs`,
+  `eslint.config.ts`, `eslint.config.mts`, `eslint.config.cts`,
+  `biome.json`, `biome.jsonc` or `.oxlintrc.json`, at any depth, read
+  whole through git at the merge base of `base` and `candidate` and at
+  `candidate`, renames detected, never from the working tree. No file is
+  parsed or run.
+
+  What an off pair is: in a file's text, a rule name, then white space or
+  none, a colon, white space or none, then an off value, the value not
+  followed by a letter, a digit, `_` or `.`. A rule name is written in
+  double quotes or in single quotes (any text without that quote), or
+  bare (a letter, `@`, `_` or `$`, then letters, digits, `@`, `/`, `-`,
+  `_`, `.` or `$`); the name is the text inside the quotes, or the bare
+  text. An off value is `"off"`, `'off'`, `off` or `0`, or `[` and white
+  space or none before one of them (the array form, `["off"]`). Any
+  number of pairs may stand on one line, and a pair is counted wherever
+  it stands, a comment included. For each file, each rule name's pairs
+  are counted at `candidate` and in the source file - the file at the
+  merge base, the one a rename came from, or none for a file the range
+  adds - and a name counted more often at `candidate` than in the source
+  is a finding `rule-off` of that file, once whatever the count. So a
+  rule moved, a line re-indented or a pair kept says nothing, and a rule
+  changed from `error` or `warn` to `off` is a finding.
+
+  Each finding is one evidence line `<file>: rule-off <name>`; a
+  sanctioned one ends ` - sanctioned: <reason>`; the lines come in no
+  particular order. A finding's id is `rule-off:<file>`, which sanctions
+  every finding of that file, by a `Sanctioned-Weakening: <id> <reason>`
+  line in a commit message of the range or by the caller's `sanctions`,
+  the form src/checks/script-changes.ts and
+  src/checks/workflow-weakening.ts state in their headers. The check
+  declares no options. A range with no finding is a `pass` whose one
+  evidence line is `no lint rule turned off`. What it does not see, and
+  its header says so: a rule set to `warn`, a rule deleted, a rule turned
+  off by a configuration named in `extends`, `package.json`'s
+  `eslintConfig`, ignore patterns, biome's `"recommended": false` and
+  `"enabled": false`, and other linters' files.
+
+  The project_truth rung runs this package's own checks over the change,
+  among them RT-24, which reports a timeout setting a range adds to a test
+  file the merge base holds; so the tests this task adds set no timeout of
+  their own.
+
+  Written on 2026-10-31 under the maintainer's rule of 2026-09-30 that every
+  not_done_if line of a spec in this repository is covered by a holdout
+  acceptance item or by a deterministic check the spec names: the holdout
+  item below is the gate's, and the builder is never shown it.
+
+measure:
+  - npx vitest run test/unit/lint-rules.test.ts
+
+creates_test_files:
+  - test/unit/lint-rules.test.ts
+
+not_done_if:
+  - "a range that sets a rule to `\"off\"`, `'off'`, `off`, `0`, `[\"off\", ...]` or `[0, ...]` - its name in double quotes, in single quotes or bare, one pair to a line or several on one line - in a file of any of the fifteen names the outcome lists, at the top directory and below it, leaves RT-92's record anything but `fail` with the evidence line `<file>: rule-off <name>`"
+  - "a rule changed from `\"error\"`, `2`, `\"warn\"` or `1` to an off value is not a finding; or a pair whose value is `\"warn\"`, `\"error\"`, `1`, `2`, `0.5`, `01`, `offset` or `\"off-by-one\"` is; or a range that turns no rule off is anything but `pass` with the one evidence line `no lint rule turned off`"
+  - "a file whose last path segment is not one of the fifteen names exactly is read - among them `package.json`, `my.eslintrc.json`, `.eslintrc.json.bak` and `tsconfig.json`; or a pair the merge base's file already holds as often, moved or re-indented, is a finding; or a file the range adds whole, or renames onto a matching name, is not read, or a rename is read against anything but its source; or a name counted twice more is two findings"
+  - "a finding is not made `pass` by a `Sanctioned-Weakening: rule-off:<file> <reason>` line in a commit message of the range, or by the caller's `sanctions`, with the reason on its evidence line; or a line naming another file, or one with no reason, sanctions it"
+  - "the range is read from anything but the merge base of `base` and `candidate` to `candidate`, through git - a pair the other side added after the merge base is a finding, or the working tree is read; a revision that names no commit, or a git that fails, yields anything but a `fail` record naming the cause, or the check throws; or the module exports `optionKinds`"
+  - "`repo-truth list` does not name RT-92 exactly once, or src/registry.ts changes"
+  - "a test file the merge base holds is changed, deleted or renamed, or test/unit/lint-rules.test.ts is not a file the task adds"
+  - "the task changes any file but src/checks/lint-rules.ts and test/unit/lint-rules.test.ts; the module is longer than about two hundred and fifty lines; a test file fails, or `npm run typecheck` fails"
+
+acceptance:
+  - type: command
+    command: npx vitest run test/unit/lint-rules.test.ts
+    required: true
+  - type: command
+    command: npm run typecheck
+    required: true
+  - type: command
+    command: 'npm run build && test "$(node dist/cli.js list | grep -c -x RT-92)" = 1'
+    required: true
+  - type: command
+    command: 'npm run build && node --input-type=module -e ''const { execFileSync, spawnSync } = await import("node:child_process"); const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs"); const { join, resolve } = await import("node:path"); const { tmpdir } = await import("node:os"); const cli = resolve("dist/cli.js"); const t = mkdtempSync(join(tmpdir(), "rt92-")); const d = join(t, "r"); const g = (...a) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { encoding: "utf8" }).trim(); execFileSync("git", ["init", "-q", d]); const f = join(d, ".eslintrc.json"); writeFileSync(f, "{\n  \"rules\": {\n    \"no-console\": \"error\"\n  }\n}\n"); g("add", "-A"); g("commit", "-q", "-m", "base"); const base = g("rev-parse", "HEAD"); writeFileSync(f, "{\n  \"rules\": {\n    \"no-console\": \"off\", \"eqeqeq\": [0]\n  }\n}\n"); g("commit", "-q", "-am", "off"); const run = (b) => spawnSync(process.execPath, [cli, "check", "--no-fetch", "--check", "RT-92", "--base", b, "--candidate", "HEAD", "--format", "json"], { cwd: d, encoding: "utf8" }); const r1 = run(base); const r2 = run("HEAD"); rmSync(t, { recursive: true, force: true }); const rec = (r) => { try { return JSON.parse(r.stdout).records[0]; } catch { return null; } }; const a = rec(r1); const b = rec(r2); process.exitCode = Number(!(r1.status === 1 && a && a.name === "RT-92" && a.status === "fail" && a.evidence.length === 2 && a.evidence.includes(".eslintrc.json: rule-off no-console") && a.evidence.includes(".eslintrc.json: rule-off eqeqeq") && r2.status === 0 && b && b.status === "pass"))'''
+    required: true
+  - type: behavior
+    statement: >
+      src/checks/lint-rules.ts is a module of the check directory: it
+      exports `name`, which is "RT-92", and `check`, and no `optionKinds`.
+      Its header comment names the files it reads, says that no file is
+      parsed or run, what an off pair is, that a rule name counted more
+      often at the candidate than in the source file is one finding, the
+      id form `rule-off:<file>`, the `Sanctioned-Weakening:` line that
+      sanctions a finding, and what the check does not see. `check`
+      returns a record and never throws: the fourth command item above
+      runs two rules turned off on one line, and an empty range, through
+      the built command.
+  - type: behavior
+    statement: >
+      Tests in test/unit/lint-rules.test.ts call `check` over throwaway
+      repositories and assert the whole record it returns: a range that
+      turns a rule off in a file of each of the fifteen names, at the top
+      directory and in a subdirectory, by each off value and each way of
+      writing a name, several on one line; a rule changed from `error`,
+      `warn`, `2` and `1` to off; the values `warn`, `error`, `1`, `2`,
+      `0.5`, `01`, `offset` and `"off-by-one"`; `package.json`,
+      `my.eslintrc.json`, `.eslintrc.json.bak` and `tsconfig.json` holding
+      an off pair; a pair the merge base already holds, moved and
+      re-indented; a name turned off twice more; a file added whole and
+      one renamed onto a matching name; a finding sanctioned by a commit
+      message line, one by the caller's `sanctions`, and a line that names
+      another file; a range whose other side added a pair after the merge
+      base; and a revision that names no commit. Fixtures are built under
+      the operating system's temporary directory and removed when the
+      suite ends.
+  - type: command
+    command: 'f=~/.config/millwright/repo-truth/holdout/rt-92.sh; [ -r "$f" ] || kill -KILL $$; exec sh "$f"'
+    required: true
+    holdout: true
+
+allowed_paths:
+  - src/checks/lint-rules.ts
+  - test/unit/lint-rules.test.ts
+forbidden_paths:
+  - factory/**
+  - .github/**
+  - README.md
+  - ROADMAP.md
+  - LICENSE
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - tsconfig.build.json
+  - action.yml
+  - repo-truth.json
+  - src/registry.ts
+  - src/cli.ts
+  - src/config.ts
+  - src/action.ts
+  - src/index.ts
+  - test/e2e/**
+
+dependencies: []
+discovered_from: null
+resources: [repo-truth:lint-rules]
+exclusive_resources: []
+
+risk:
+  level: medium
+  dimensions: [contract]
+
+budget:
+  quality_attempts: 2
+  infra_retries: 3
+  builder_usd: 3.00
+  verify_usd: 2.00
+  wall_minutes: 45
+
+merge: { mode: auto }
