@@ -72,6 +72,13 @@ describe("RT-91 raised workflow permissions", () => {
   }
 
   const added = (line: string) => run({ [W]: body() }, { [W]: body(line) });
+  const addedAll = (lines: string[]) => run({ [W]: body() }, { [W]: body(...lines.map((line) => `  ${line}`)) });
+  const failingAll = (category: string, texts: string[]) => ({
+    name: "RT-91",
+    status: "fail",
+    evidence: texts.map((text) => `${W}: ${category} "${text}"`).sort(),
+  });
+  const sorted = <T extends { evidence: readonly string[] }>(record: T) => ({ ...record, evidence: [...record.evidence].sort() });
   const failing = (category: string, text: string, file = W) => ({
     name: "RT-91",
     status: "fail",
@@ -85,16 +92,15 @@ describe("RT-91 raised workflow permissions", () => {
   });
 
   it("fails permissions: write-all, plain, quoted, commented, as a list item", async () => {
-    for (const text of [
+    const texts = [
       "permissions: write-all",
       'permissions: "write-all"',
       "permissions: 'write-all'",
       "permissions : write-all",
       "permissions: write-all # all of it",
       "- permissions: write-all",
-    ]) {
-      expect(await added(`  ${text}`)).toEqual(failing("write-all", text));
-    }
+    ];
+    expect(sorted(await addedAll(texts))).toEqual(failingAll("write-all", texts));
   });
 
   it("fails a write scope for each of the fifteen scopes, in every spelling", async () => {
@@ -115,7 +121,7 @@ describe("RT-91 raised workflow permissions", () => {
   });
 
   it("fails each pull_request_target form", async () => {
-    for (const text of [
+    const texts = [
       "pull_request_target:",
       "pull_request_target: # trigger",
       "pull_request_target: { types: [opened] }",
@@ -125,13 +131,12 @@ describe("RT-91 raised workflow permissions", () => {
       "on: 'pull_request_target'",
       "on: [push, pull_request_target]",
       'on: ["push", "pull_request_target"] # both',
-    ]) {
-      expect(await added(`  ${text}`)).toEqual(failing("pull-request-target", text));
-    }
+    ];
+    expect(sorted(await addedAll(texts))).toEqual(failingAll("pull-request-target", texts));
   });
 
   it("passes what is not a finding", async () => {
-    for (const text of [
+    expect(await addedAll([
       "permissions: read-all",
       "permissions: {}",
       "permissions: { contents: read }",
@@ -152,9 +157,7 @@ describe("RT-91 raised workflow permissions", () => {
       "- run: echo permissions write-all contents: write",
       "run: echo 'contents: write'",
       "- name: contents: write",
-    ]) {
-      expect(await added(`  ${text}`)).toEqual(PASS);
-    }
+    ])).toEqual(PASS);
   });
 
   it("reads only files directly in .github/workflows", async () => {
