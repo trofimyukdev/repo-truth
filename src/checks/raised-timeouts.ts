@@ -8,6 +8,10 @@
  * (`timeout-raised`) or one added to a file the merge base holds
  * (`timeout-added`) for a human to sanction. Only the diff is read, through git.
  *
+ * A value may carry the digit separator `_` between digits, in its integer part
+ * and in its fraction. Values are compared with the separators dropped, and the
+ * evidence names each value as the line writes it.
+ *
  * Which files and spellings count lives in the exported `TIMEOUT_SPELLINGS`,
  * read each time the check runs: a consumer appends its own entry.
  */
@@ -37,7 +41,10 @@ export interface TimeoutSpelling {
   readonly example: string;
 }
 
-const NUMBER = "(?<value>\\d+(?:\\.\\d+)?)";
+const NUMBER = "(?<value>\\d+(?:_\\d+)*(?:\\.\\d+(?:_\\d+)*)?)";
+
+/** A value as a number: each `_` between two digits dropped. */
+const numeric = (value: string): number => Number(value.replace(/(?<=\d)_(?=\d)/g, ""));
 const KEYS = "(?<key>testTimeout|hookTimeout|teardownTimeout)";
 const RUNNER_CONFIG = /(?:^|\/)(?:(?:vitest|vite|jest)\.config\.(?:[cm]?[jt]s|json)|package\.json)$/;
 const TEST_FILE = /(?:(?:^|\/)(?:tests?|__tests__|spec)\/(?:.*\/)?[^/]*\.[cm]?[jt]sx?$|\.(?:test|spec)\.(?:[^/]*\.)?[cm]?[jt]sx?$)/;
@@ -208,7 +215,7 @@ function hitsOf(spelling: TimeoutSpelling, path: string | null, lines: readonly 
   for (const line of lines) {
     for (const match of line.text.matchAll(pattern)) {
       const value = match.groups?.["value"];
-      if (value !== undefined && Number.isFinite(Number(value))) hits.push({ line: line.number, key: match.groups?.["key"] ?? "", value });
+      if (value !== undefined && Number.isFinite(numeric(value))) hits.push({ line: line.number, key: match.groups?.["key"] ?? "", value });
     }
   }
   return hits;
@@ -231,7 +238,7 @@ function draftsOf(changes: readonly Change[], spellings: readonly TimeoutSpellin
             const shared = { name: spelling.name, key: key === "" ? null : key, file: change.newPath ?? "", line: now.line, newValue: now.value };
             if (old === undefined) {
               if (change.oldPath !== null) drafts.push({ category: "timeout-added", oldValue: null, ...shared });
-            } else if (Number(now.value) > Number(old.value)) {
+            } else if (numeric(now.value) > numeric(old.value)) {
               drafts.push({ category: "timeout-raised", oldValue: old.value, ...shared });
             }
           });
