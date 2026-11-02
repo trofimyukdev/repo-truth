@@ -1,7 +1,7 @@
 {
-  "name": "repo-truth",
-  "version": "0.0.0",
-  "description": "Repository truth: portable gates over a commit range - hygiene, the measurement rule, weakened tests, stray files, lockfile drift.",
+  "name": "@trofimyukdev/repo-truth",
+  "version": "0.1.0",
+  "description": "Checks over a git commit range for the moves that make a repository look healthier than it is: weakened tests, lowered thresholds, loosened workflows, committed credentials and more.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -13,6 +13,13 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trofimyukdev/repo-truth.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
