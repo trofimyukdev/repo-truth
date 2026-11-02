@@ -22,6 +22,20 @@ const ENV = {
 const SHORT = 5000;
 const LONG = 30000;
 const LONGER = 60000;
+const SEPARATED = "10_000";
+const BASE_SEP = "5_000";
+const CAND_SEP = "60_000";
+const BOTH_SEP = "10_000";
+const LOWER_BASE = "30_000";
+const LOWER_CAND = "9_000";
+const MILLION = "1_000_000";
+const LOWER_BOTH = "900_000";
+const DEC_FROM = "1_000.25";
+const DEC_TO = "1_000.75";
+const DEC_LOW_FROM = "1_000.5";
+const DEC_LOW_TO = "1_000.25";
+const FRAC_FROM = "1.000_25";
+const FRAC_TO = "1.000_75";
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args as string[], { cwd, env: ENV });
@@ -137,6 +151,67 @@ describe("RT-24 raised timeouts", () => {
     const record = await run({ [file]: `jest.setTimeout(${LONGER});\n// a\n` }, { [file]: `jest.setTimeout(${LONGER});\n// b\n` });
     expect(record.status).toBe("pass");
   });
+
+  const optionLine = (v: string): string => `it("x", { timeout: ${v} }, () => {});\n`;
+
+  async function moved(from: string, to: string) {
+    const record = await run({ "s.test.ts": optionLine(from) }, { "s.test.ts": optionLine(to) });
+    return { record, finding: record.findings[0] };
+  }
+
+  const raises: [string, string][] = [
+    [BASE_SEP, "6000"],
+    ["5000", CAND_SEP],
+    [BASE_SEP, BOTH_SEP],
+    [DEC_FROM, DEC_TO],
+    [FRAC_FROM, FRAC_TO],
+  ];
+  for (const [from, to] of raises) {
+    it(`reads a raise from ${from} to ${to} whole`, async () => {
+      const { record, finding } = await moved(from, to);
+      expect(record.status).toBe("fail");
+      expect(record.evidence).toEqual([`s.test.ts:1: raised timeout option timeout from ${from} to ${to}`]);
+      expect([finding?.oldValue, finding?.newValue]).toEqual([from, to]);
+    });
+  }
+
+  const lowerings: [string, string][] = [
+    [LOWER_BASE, "10000"],
+    ["50000", LOWER_CAND],
+    [MILLION, LOWER_BOTH],
+    [DEC_LOW_FROM, DEC_LOW_TO],
+  ];
+  for (const [from, to] of lowerings) {
+    it(`passes a lowering from ${from} to ${to}`, async () => {
+      const { record } = await moved(from, to);
+      expect(record.status).toBe("pass");
+      expect(record.evidence).toEqual(["no timeout raised or added"]);
+    });
+  }
+
+  for (const [from, to] of [["10000", SEPARATED], [SEPARATED, "10000"]] as const) {
+    it(`treats ${from} and ${to} as no raise`, async () => {
+      const { record } = await moved(from, to);
+      expect(record.status).toBe("pass");
+      expect(record.findings).toEqual([]);
+    });
+  }
+
+  const spellingCases: [string, string, (v: string) => string][] = [
+    ["a.config.ts", "timeout key", (v) => `export default { testTimeout: ${v} };\n`],
+    ["a.test.ts", "jest.setTimeout", (v) => `jest.setTimeout(${v});\n`],
+    ["a.test.ts", "timeout option", optionLine],
+    ["a.test.ts", "mocha this.timeout", (v) => `this.timeout(${v});\n`],
+    ["a.test.ts", "test timeout argument", (v) => `it("x", () => {\n}, ${v});\n`],
+  ];
+  for (const [file, label, make] of spellingCases) {
+    it(`reads a separated value added in the ${label} spelling`, async () => {
+      const path = file === "a.config.ts" ? "vitest.config.ts" : file;
+      const record = await run({ [path]: "// nothing\n" }, { [path]: make(SEPARATED) });
+      expect(record.findings.map((f) => [f.category, f.newValue])).toEqual([["timeout-added", SEPARATED]]);
+      expect(record.evidence[0]).toContain(` ${SEPARATED}`);
+    });
+  }
 
   it("reports a timeout added to an existing file but not to a new one", async () => {
     const added = await run({ "e.test.ts": "it('x', () => {});\n" }, { "e.test.ts": `jest.setTimeout(${LONG});\nit('x', () => {});\n` });
